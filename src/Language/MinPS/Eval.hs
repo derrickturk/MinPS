@@ -17,7 +17,7 @@ import qualified Data.Text as T
 import Language.MinPS.Syntax
 import Language.MinPS.Value
 
-data RecEnv = MkRecEnv { getEnv :: M.Map T.Text (Closure, Term 'Checked) }
+data RecEnv = MkRecEnv { getRecEnv :: M.Map T.Text (Closure, Term 'Checked) }
 
 emptyRecEnv :: RecEnv
 emptyRecEnv = MkRecEnv M.empty
@@ -87,12 +87,24 @@ lookupVar :: Closure -> Int -> Eval Value
 lookupVar c i = go i c i where
   go ix [] _ = pure $ VNeutral $ NVar ix
   go _ (v :+ _) 0 = pure v
-  go _ (r :- _) 0 = error "dunno yet!"
+  go _ ((MkRecBinding x) :- _) 0 = do
+    env <- asks getRecEnv
+    let (c', t) = env M.! x
+    eval' c' t
   go ix (_:vs) n = go ix vs (n - 1)
 
+-- TODO: consider if this breaks name shadowing
 evalContext :: Context 'Checked -> Closure -> Eval (Closure, RecEnv)
-evalContext [] c = ask >>= \e -> pure (c, e) -- TODO
-{--
-evalContext ((_, _, t):rest) c = let fixT = eval' (fixT :+ c) t in
-  evalContext rest (fixT :+ c)
---}
+evalContext ctxt clos = asks getRecEnv >>= \e -> go e ctxt clos where
+  go :: M.Map T.Text (Closure, Term 'Checked)
+     -> Context 'Checked
+     -> Closure
+     -> Eval (Closure, RecEnv)
+  go env [] c = pure (c, MkRecEnv env)
+  go env ((x, _, t):rest) c = let c' = MkRecBinding x :- c
+                                  env' = M.insert x (c', t) env in
+    go env' rest c'
+  {--
+  evalContext ((_, _, t):rest) c = let fixT = eval' (fixT :+ c) t in
+    evalContext rest (fixT :+ c)
+  --}
