@@ -5,6 +5,7 @@ module Language.MinPS.Value (
     RecBinding(..)
   , Closure
   , pattern (:+)
+  , pattern (:-)
   , Value(..)
   , Neutral(..)
 ) where
@@ -21,6 +22,10 @@ type Closure = [Either RecBinding Value]
 pattern (:+) :: Value -> Closure -> Closure
 pattern x :+ xs = (Right x) : xs
 infixr 5 :+
+
+pattern (:-) :: RecBinding -> Closure -> Closure
+pattern x :- xs = (Left x) : xs
+infixr 5 :-
 
 data Value =
     VType

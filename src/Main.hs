@@ -19,7 +19,7 @@ bindings =
 
 main :: IO ()
 main = do
-  let nat = eval $ Let bindings (Var 0)
+  let nat = runEval (eval $ Let bindings (Var 0)) emptyRecEnv
   case nat of
     VSigma _ x ty t -> putStrLn $
       "Nat is (Sigma " ++ show x ++ " (" ++ show ty ++ ") (" ++ show t ++ ")"
@@ -29,4 +29,4 @@ main = do
     VNeutral _ -> putStrLn "Nat went Neutral"
     VBox _ t -> putStrLn $ "Nat went Box " ++ show t
     VRec _ t -> putStrLn $ "Nat went Rec " ++ show t
-    _ -> putStrLn "the fuck?"
+    _ -> putStrLn "Nat went wrong"
