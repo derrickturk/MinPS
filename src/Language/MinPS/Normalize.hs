@@ -8,17 +8,14 @@ import Language.MinPS.Syntax
 import Language.MinPS.Eval
 import Language.MinPS.Value
 
-{--
-
 class Normalize a where
-  normalize' :: Closure -> a -> Eval (Term 'Checked)
-  normalize :: a -> Term 'Checked
-  normalize = ($ emptyRecEnv) . runEval . normalize' []
+  normalize :: a -> Eval (Term 'Checked)
 
 instance Normalize Value where
-  normalize' _ VType = pure Type
-  normalize' _ (VPi c
-  | VPi Closure T.Text (Term 'Checked) (Term 'Checked)
+  normalize VType = pure Type
+  normalize (VPi c x ty t) =
+    Pi x <$> (eval' c ty >>= normalize) <*> (eval' c t >>= normalize)
+  {--
   | VSigma Closure T.Text (Term 'Checked) (Term 'Checked)
   | VLam Closure T.Text (Term 'Checked)
   | VPair Closure (Term 'Checked) (Term 'Checked)
@@ -29,12 +26,14 @@ instance Normalize Value where
   | VRec Closure (Term 'Checked)
   | VFold Closure (Term 'Checked)
   | VNeutral Neutral
+  --}
 
 instance Normalize Neutral where
-  normalize' _ (NVar i) = pure $ Var i
+  normalize (NVar i) = pure $ Var i
+  {--
   | NApp Neutral Closure (Term 'Checked)
   | NSplit Neutral Closure T.Text T.Text (Term 'Checked)
   | NCase Neutral Closure [(Label, Term 'Checked)]
   | NForce Neutral
   | NUnfold Neutral Closure T.Text (Term 'Checked)
---}
+  --}
