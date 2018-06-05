@@ -19,7 +19,7 @@ bindings =
 
 main :: IO ()
 main = do
-  let nat = runEval (eval $ Let bindings (Var 0)) emptyRecEnv
+  let nat = evalEval (eval $ Let bindings (Var 1)) emptyRecEnv
   case nat of
     VSigma _ x ty t -> putStrLn $
       "Nat is (Sigma " ++ show x ++ " (" ++ show ty ++ ") (" ++ show t ++ ")"

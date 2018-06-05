@@ -14,7 +14,7 @@ import qualified Data.Text as T
 
 import Language.MinPS.Syntax
 
-newtype RecBinding = MkRecBinding { recBoundName :: T.Text }
+newtype RecBinding = MkRecBinding { envIndex :: Int }
   deriving Show
 
 type Closure = [Either RecBinding Value]

@@ -6,35 +6,46 @@ module Language.MinPS.Eval (
   , emptyRecEnv
   , Eval
   , runEval
+  , evalEval
+  , execEval
   , eval
   , eval'
 ) where
 
-import Control.Monad.Reader
-import qualified Data.Map as M
+import Control.Monad.State
+import qualified Data.Sequence as S
 import qualified Data.Text as T
 
 import Language.MinPS.Syntax
 import Language.MinPS.Value
 
-data RecEnv = MkRecEnv { getRecEnv :: M.Map T.Text (Closure, Term 'Checked) }
+data RecEnv = RecEnv
+  { getRecEnv :: S.Seq (T.Text, Closure, Term 'Checked)
+  , nextBinding :: Int
+  }
 
 emptyRecEnv :: RecEnv
-emptyRecEnv = MkRecEnv M.empty
+emptyRecEnv = RecEnv S.empty 0
 
-newtype Eval a = Eval { getEval :: Reader RecEnv a }
-  deriving (Functor, Applicative, Monad, MonadReader RecEnv)
+newtype Eval a = Eval { getEval :: State RecEnv a }
+  deriving (Functor, Applicative, Monad, MonadState RecEnv)
 
-runEval :: Eval a -> RecEnv -> a
-runEval = runReader . getEval
+runEval :: Eval a -> RecEnv -> (a, RecEnv)
+runEval = runState . getEval
+
+evalEval :: Eval a -> RecEnv -> a
+evalEval = evalState . getEval
+
+execEval :: Eval a -> RecEnv -> RecEnv
+execEval = execState . getEval
 
 eval :: Term 'Checked -> Eval Value
 eval = eval' []
 
 eval' :: Closure -> Term 'Checked -> Eval Value
 eval' c (Let ctxt t) = do
-  (c', env') <- evalContext ctxt c
-  pure $ runEval (eval' c' t) env'
+  c' <- evalContext ctxt c
+  eval' c' t
 
 eval' _ Type = pure VType
 eval' c (Var i) = lookupVar c i
@@ -88,19 +99,18 @@ lookupVar c i = go i c i where
   go ix [] _ = pure $ VNeutral $ NVar ix
   go _ (v :+ _) 0 = pure v
   go _ ((MkRecBinding x) :- _) 0 = do
-    env <- asks getRecEnv
-    let (c', t) = env M.! x
-    eval' c' t
+    env <- gets getRecEnv
+    case env S.!? x of
+      Just (_, c', t) -> eval' c' t
+      Nothing -> error "ICE: closure & rec. env. out of sync"
   go ix (_:vs) n = go ix vs (n - 1)
 
--- TODO: consider if this breaks name shadowing
-evalContext :: Context 'Checked -> Closure -> Eval (Closure, RecEnv)
-evalContext ctxt clos = asks getRecEnv >>= \e -> go e ctxt clos where
-  go :: M.Map T.Text (Closure, Term 'Checked)
-     -> Context 'Checked
-     -> Closure
-     -> Eval (Closure, RecEnv)
-  go env [] c = pure (c, MkRecEnv env)
-  go env ((x, _, t):rest) c = let c' = MkRecBinding x :- c
-                                  env' = M.insert x (c', t) env in
-    go env' rest c'
+evalContext :: Context 'Checked -> Closure -> Eval Closure
+evalContext [] c = pure c
+evalContext ((x, _, t):rest) c = do
+  next <- gets nextBinding
+  env <- gets getRecEnv
+  let c' = MkRecBinding next :- c
+      env' = env S.:|> (x, c', t)
+  put $ RecEnv env' (next + 1)
+  evalContext rest c'

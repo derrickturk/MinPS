@@ -1,12 +1,14 @@
 {-# LANGUAGE DataKinds #-}
 
 module Language.MinPS.Normalize (
-    Normalize(..)
+    -- Normalize(..)
 ) where
 
 import Language.MinPS.Syntax
 import Language.MinPS.Eval
 import Language.MinPS.Value
+
+{--
 
 class Normalize a where
   normalize' :: Closure -> a -> Eval (Term 'Checked)
@@ -15,7 +17,7 @@ class Normalize a where
 
 instance Normalize Value where
   normalize' _ VType = pure Type
-  {--
+  normalize' _ (VPi c
   | VPi Closure T.Text (Term 'Checked) (Term 'Checked)
   | VSigma Closure T.Text (Term 'Checked) (Term 'Checked)
   | VLam Closure T.Text (Term 'Checked)
@@ -27,14 +29,12 @@ instance Normalize Value where
   | VRec Closure (Term 'Checked)
   | VFold Closure (Term 'Checked)
   | VNeutral Neutral
-  --}
 
 instance Normalize Neutral where
   normalize' _ (NVar i) = pure $ Var i
-  {--
   | NApp Neutral Closure (Term 'Checked)
   | NSplit Neutral Closure T.Text T.Text (Term 'Checked)
   | NCase Neutral Closure [(Label, Term 'Checked)]
   | NForce Neutral
   | NUnfold Neutral Closure T.Text (Term 'Checked)
-  --}
+--}
