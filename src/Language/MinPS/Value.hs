@@ -25,7 +25,7 @@ data Value =
   | VRec Closure (Term 'Checked)
   | VFold Closure (Term 'Checked)
   | VNeutral Neutral
-  -- deriving Show
+  deriving Show
 
 data Neutral =
     NVar Int
@@ -34,4 +34,4 @@ data Neutral =
   | NCase Neutral Closure [(Label, Term 'Checked)]
   | NForce Neutral
   | NUnfold Neutral Closure T.Text (Term 'Checked)
-  -- deriving Show
+  deriving Show

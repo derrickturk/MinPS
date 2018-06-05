@@ -1,5 +1,5 @@
 {-# LANGUAGE GADTs, DataKinds, KindSignatures, StandaloneDeriving #-}
-{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE FlexibleInstances, TypeFamilies #-}
 
 module Language.MinPS.Syntax (
     TermState(..)
@@ -41,5 +41,5 @@ data Term :: TermState -> * where
   Force :: Term s -> Term s
   Unfold :: Term s -> T.Text -> Term s -> Term s
 
--- blah blah context blah
--- deriving instance Show (Term s)
+deriving instance Show (Term 'Checked)
+deriving instance Show (Term 'Unchecked)
