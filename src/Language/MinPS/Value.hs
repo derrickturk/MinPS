@@ -1,7 +1,10 @@
 {-# LANGUAGE GADTs, DataKinds, KindSignatures, StandaloneDeriving #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 module Language.MinPS.Value (
-    Closure
+    RecBinding(..)
+  , Closure
+  , pattern (:+)
   , Value(..)
   , Neutral(..)
 ) where
@@ -10,7 +13,14 @@ import qualified Data.Text as T
 
 import Language.MinPS.Syntax
 
-type Closure = [Value]
+newtype RecBinding = MkRecBinding { recBoundName :: T.Text }
+  deriving Show
+
+type Closure = [Either RecBinding Value]
+
+pattern (:+) :: Value -> Closure -> Closure
+pattern x :+ xs = (Right x) : xs
+infixr 5 :+
 
 data Value =
     VType

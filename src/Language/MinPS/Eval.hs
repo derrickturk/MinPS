@@ -1,12 +1,15 @@
 {-# LANGUAGE GADTs, DataKinds, KindSignatures, StandaloneDeriving #-}
 
 module Language.MinPS.Eval (
-    eval
+    RecEnv
+  , eval
   , eval'
 ) where
 
 import Language.MinPS.Syntax
 import Language.MinPS.Value
+
+data RecEnv
 
 eval :: Term 'Checked -> Value
 eval = eval' []
@@ -28,12 +31,12 @@ eval' c (Fold t) = VFold c t
 
 eval' c (App f x) = case eval' c f of
   VNeutral n -> VNeutral (NApp n c x)
-  VLam c' _ body -> eval' ((eval' c x):c') body
+  VLam c' _ body -> eval' ((eval' c x) :+ c') body
   _ -> error "ICE: invalid application passed check"
 
 eval' c (Split t x y u) = case eval' c t of
   VNeutral n -> VNeutral (NSplit n c x y u)
-  VPair c' t1 t2 -> eval' ((eval' c' t2):(eval' c' t1):c) u
+  VPair c' t1 t2 -> eval' ((eval' c' t2) :+ (eval' c' t1) :+ c) u
   _ -> error "ICE: invalid split passed check"
 
 eval' c (Case t cases) = case (eval' c t) of
@@ -50,15 +53,17 @@ eval' c (Force t) = case (eval' c t) of
 
 eval' c (Unfold t x u) = case (eval' c t) of
   VNeutral n -> VNeutral (NUnfold n c x u)
-  VFold c' t' -> eval' ((eval' c' t'):c) u
+  VFold c' t' -> eval' ((eval' c' t') :+ c) u
   _ -> error "ICE: invalid unfold passed check"
 
 lookupVar :: Closure -> Int -> Value
 lookupVar c i = go i c i where
   go ix [] _ = VNeutral (NVar ix)
-  go _ (v:_) 0 = v
+  go _ (v :+ _) 0 = v
+  go _ (Left r : _) 0 = error "dunno yet!"
   go ix (_:vs) n = go ix vs (n - 1)
 
 evalContext :: Context 'Checked -> Closure -> Closure
 evalContext [] c = c
-evalContext ((_, _, t):rest) c = evalContext rest ((eval' c t):c)
+evalContext ((_, _, t):rest) c = let fixT = eval' (fixT :+ c) t in
+  evalContext rest (fixT :+ c)
