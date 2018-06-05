@@ -1,14 +1,16 @@
 {-# LANGUAGE GADTs, DataKinds, KindSignatures, StandaloneDeriving #-}
 
 module Language.MinPS.Value (
-    Value(..)
+    Closure
+  , Value(..)
   , Neutral(..)
 ) where
 
 import qualified Data.Text as T
 
 import Language.MinPS.Syntax
-import Language.MinPS.Context
+
+type Closure = [Value]
 
 data Value =
     VType
@@ -23,7 +25,7 @@ data Value =
   | VRec Closure (Term 'Checked)
   | VFold Closure (Term 'Checked)
   | VNeutral Neutral
-  deriving Show
+  -- deriving Show
 
 data Neutral =
     NVar Int
@@ -32,4 +34,4 @@ data Neutral =
   | NCase Neutral Closure [(Label, Term 'Checked)]
   | NForce Neutral
   | NUnfold Neutral Closure T.Text (Term 'Checked)
-  deriving Show
+  -- deriving Show
