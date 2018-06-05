@@ -104,7 +104,3 @@ evalContext ctxt clos = asks getRecEnv >>= \e -> go e ctxt clos where
   go env ((x, _, t):rest) c = let c' = MkRecBinding x :- c
                                   env' = M.insert x (c', t) env in
     go env' rest c'
-  {--
-  evalContext ((_, _, t):rest) c = let fixT = eval' (fixT :+ c) t in
-    evalContext rest (fixT :+ c)
-  --}

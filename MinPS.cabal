@@ -24,4 +24,5 @@ executable MinPS
   other-modules:       Language.MinPS.Syntax
                      , Language.MinPS.Value
                      , Language.MinPS.Eval
+                     , Language.MinPS.Normalize
   ghc-options:         -Wall -fno-warn-unused-do-bind -O2
