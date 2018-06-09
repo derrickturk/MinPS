@@ -106,11 +106,28 @@ lookupVar c i = go i c i where
   go ix (_:vs) n = go ix vs (n - 1)
 
 evalContext :: Context 'Checked -> Closure -> Eval Closure
-evalContext [] c = pure c
-evalContext ((x, _, t):rest) c = do
-  next <- gets nextBinding
-  env <- gets getRecEnv
-  let c' = MkRecBinding next :- c
-      env' = env S.:|> (x, c', t)
-  put $ RecEnv env' (next + 1)
-  evalContext rest c'
+evalContext = go [] where
+  go :: [(T.Text, Int)] -> Context 'Checked -> Closure -> Eval Closure
+  go _ [] c = pure c
+
+  go n ((Declare x _):rest) c = do
+    next <- gets nextBinding
+    env <- gets getRecEnv
+    let c' = MkRecBinding next :- c
+        env' = env S.:|> recUndefined x
+    put $ RecEnv env' (next + 1)
+    go ((x, next):n) rest c'
+
+  go n ((Define x t):rest) c = do
+    let Just i = lookup x n
+    next <- gets nextBinding
+    env <- gets getRecEnv
+    let env' = S.update i (x, c, t) env
+    put $ RecEnv env' next
+    go n rest c
+
+  -- this is used as a placeholder and can't escape evalContext for
+  --   well-typed contexts; if it ever shows up downstream we've made a
+  --   terrible mistake
+  recUndefined :: T.Text -> (T.Text, Closure, Term 'Checked)
+  recUndefined x = (x, [], Type)

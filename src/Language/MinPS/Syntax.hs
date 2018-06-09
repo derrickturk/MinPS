@@ -3,6 +3,7 @@
 
 module Language.MinPS.Syntax (
     TermState(..)
+  , Stmt(..)
   , Context
   , Label(..)
   , Term(..)
@@ -17,9 +18,11 @@ data TermState = Unchecked
 newtype Label = MkLabel { label :: T.Text }
   deriving (Show, Eq)
 
-type family Context (s :: TermState) where
-  Context 'Unchecked = [(T.Text, Term 'Unchecked, Maybe (Term 'Unchecked))]
-  Context 'Checked = [(T.Text, Term 'Checked, Term 'Checked)]
+data Stmt :: TermState -> * where
+  Declare :: T.Text -> Term s -> Stmt s
+  Define :: T.Text -> Term s -> Stmt s
+
+type Context s = [Stmt s]
 
 data Term :: TermState -> * where
   Let :: Context s -> Term s -> Term s
@@ -40,6 +43,9 @@ data Term :: TermState -> * where
   Case :: Term s -> [(Label, Term s)] -> Term s
   Force :: Term s -> Term s
   Unfold :: Term s -> T.Text -> Term s -> Term s
+
+deriving instance Show (Stmt 'Checked) 
+deriving instance Show (Stmt 'Unchecked) 
 
 deriving instance Show (Term 'Checked)
 deriving instance Show (Term 'Unchecked)
