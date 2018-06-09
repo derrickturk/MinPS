@@ -2,14 +2,15 @@
 {-# LANGUAGE LambdaCase, GeneralizedNewtypeDeriving #-}
 
 module Language.MinPS.Eval (
-    RecEnv
+    MonadEval(..)
+  , eval
+  , eval'
+  , RecEnv
   , emptyRecEnv
   , Eval
   , runEval
   , evalEval
   , execEval
-  , eval
-  , eval'
 ) where
 
 import Control.Monad.State
@@ -19,30 +20,15 @@ import qualified Data.Text as T
 import Language.MinPS.Syntax
 import Language.MinPS.Value
 
-data RecEnv = RecEnv
-  { getRecEnv :: S.Seq (T.Text, Closure, Term 'Checked)
-  , nextBinding :: Int
-  }
+class Monad m => MonadEval m where
+  getBoundTerm :: RecBinding -> m (Maybe (T.Text, Closure, Term 'Checked))
+  addBoundTerm :: (T.Text, Closure, Term 'Checked) -> m RecBinding
+  updateBoundTerm :: RecBinding -> (T.Text, Closure, Term 'Checked) -> m ()
 
-emptyRecEnv :: RecEnv
-emptyRecEnv = RecEnv S.empty 0
-
-newtype Eval a = Eval { getEval :: State RecEnv a }
-  deriving (Functor, Applicative, Monad, MonadState RecEnv)
-
-runEval :: Eval a -> RecEnv -> (a, RecEnv)
-runEval = runState . getEval
-
-evalEval :: Eval a -> RecEnv -> a
-evalEval = evalState . getEval
-
-execEval :: Eval a -> RecEnv -> RecEnv
-execEval = execState . getEval
-
-eval :: Term 'Checked -> Eval Value
+eval :: MonadEval m => Term 'Checked -> m Value
 eval = eval' []
 
-eval' :: Closure -> Term 'Checked -> Eval Value
+eval' :: MonadEval m => Closure -> Term 'Checked -> m Value
 eval' c (Let ctxt t) = do
   c' <- evalContext ctxt c
   eval' c' t
@@ -94,36 +80,34 @@ eval' c (Unfold t x u) = eval' c t >>= \case
     eval' (t'' :+ c) u
   _ -> error "ICE: invalid unfold passed check"
 
-lookupVar :: Closure -> Int -> Eval Value
+lookupVar :: MonadEval m => Closure -> Int -> m Value
 lookupVar c i = go i c i where
   go ix [] _ = pure $ VNeutral $ NVar ix
   go _ (v :+ _) 0 = pure v
-  go _ ((MkRecBinding x) :- _) 0 = do
-    env <- gets getRecEnv
-    case env S.!? x of
+  go _ (recBinding :- _) 0 = do
+    entry <- getBoundTerm recBinding
+    case entry of
       Just (_, c', t) -> eval' c' t
       Nothing -> error "ICE: closure & rec. env. out of sync"
   go ix (_:vs) n = go ix vs (n - 1)
 
-evalContext :: Context 'Checked -> Closure -> Eval Closure
+evalContext :: MonadEval m => Context 'Checked -> Closure -> m Closure
 evalContext = go [] where
-  go :: [(T.Text, Int)] -> Context 'Checked -> Closure -> Eval Closure
+  go :: MonadEval m
+     => [(T.Text, RecBinding)]
+     -> Context 'Checked
+     -> Closure
+     -> m Closure
+
   go _ [] c = pure c
 
   go n ((Declare x _):rest) c = do
-    next <- gets nextBinding
-    env <- gets getRecEnv
-    let c' = MkRecBinding next :- c
-        env' = env S.:|> recUndefined x
-    put $ RecEnv env' (next + 1)
-    go ((x, next):n) rest c'
+    binding <- addBoundTerm $ recUndefined x
+    go ((x, binding):n) rest (binding :- c)
 
   go n ((Define x t):rest) c = do
-    let Just i = lookup x n
-    next <- gets nextBinding
-    env <- gets getRecEnv
-    let env' = S.update i (x, c, t) env
-    put $ RecEnv env' next
+    let Just binding = lookup x n
+    updateBoundTerm binding (x, c, t)
     go n rest c
 
   -- this is used as a placeholder and can't escape evalContext for
@@ -131,3 +115,35 @@ evalContext = go [] where
   --   terrible mistake
   recUndefined :: T.Text -> (T.Text, Closure, Term 'Checked)
   recUndefined x = (x, [], Type)
+
+data RecEnv = RecEnv
+  { getRecEnv :: S.Seq (T.Text, Closure, Term 'Checked)
+  , nextBinding :: Int
+  }
+
+emptyRecEnv :: RecEnv
+emptyRecEnv = RecEnv S.empty 0
+
+newtype Eval a = Eval { getEval :: State RecEnv a }
+  deriving (Functor, Applicative, Monad, MonadState RecEnv)
+
+runEval :: Eval a -> RecEnv -> (a, RecEnv)
+runEval = runState . getEval
+
+evalEval :: Eval a -> RecEnv -> a
+evalEval = evalState . getEval
+
+execEval :: Eval a -> RecEnv -> RecEnv
+execEval = execState . getEval
+
+instance MonadEval Eval where
+  getBoundTerm (MkRecBinding x) = gets (S.lookup x . getRecEnv)
+
+  addBoundTerm entry = do
+    RecEnv env next <- get
+    put $ RecEnv (env S.:|> entry) (next + 1)
+    pure $ MkRecBinding next
+
+  updateBoundTerm (MkRecBinding x) entry = do
+    RecEnv env next <- get
+    put $ RecEnv (S.update x entry env) next
