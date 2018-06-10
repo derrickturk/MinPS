@@ -2,6 +2,7 @@
 {-# LANGUAGE LambdaCase, GeneralizedNewtypeDeriving #-}
 
 module Language.MinPS.Eval (
+    {--
     MonadEval(..)
   , eval
   , eval'
@@ -11,6 +12,7 @@ module Language.MinPS.Eval (
   , runEval
   , evalEval
   , execEval
+  --}
 ) where
 
 import Control.Monad.State
@@ -19,6 +21,8 @@ import qualified Data.Text as T
 
 import Language.MinPS.Syntax
 import Language.MinPS.Value
+
+{--
 
 class Monad m => MonadEval m where
   getBoundTerm :: RecBinding -> m (Maybe (T.Text, Closure, Term 'Checked))
@@ -147,3 +151,5 @@ instance MonadEval Eval where
   updateBoundTerm (MkRecBinding x) entry = do
     RecEnv env next <- get
     put $ RecEnv (S.update x entry env) next
+
+--}

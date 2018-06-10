@@ -1,12 +1,14 @@
 {-# LANGUAGE DataKinds #-}
 
 module Language.MinPS.Normalize (
-    Normalize(..)
+    -- Normalize(..)
 ) where
 
 import Language.MinPS.Syntax
 import Language.MinPS.Eval
 import Language.MinPS.Value
+
+{--
 
 class Normalize a where
   normalize :: a -> Eval (Term 'Checked)
@@ -70,3 +72,5 @@ instance Normalize Neutral where
     Unfold <$> normalize n
            <*> pure x
            <*> (eval' (VNeutral (NVar 0) :+ c) t >>= normalize)
+
+--}

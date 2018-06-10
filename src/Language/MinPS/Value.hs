@@ -1,52 +1,33 @@
-{-# LANGUAGE GADTs, DataKinds, KindSignatures, StandaloneDeriving #-}
-{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE GADTs, DataKinds #-}
 
 module Language.MinPS.Value (
-    RecBinding(..)
-  , Closure
-  , pattern (:+)
-  , pattern (:-)
-  , Value(..)
+    Value(..)
   , Neutral(..)
 ) where
 
-import qualified Data.Text as T
-
 import Language.MinPS.Syntax
-
-newtype RecBinding = MkRecBinding { envIndex :: Int }
-  deriving Show
-
-type Closure = [Either RecBinding Value]
-
-pattern (:+) :: Value -> Closure -> Closure
-pattern x :+ xs = (Right x) : xs
-infixr 5 :+
-
-pattern (:-) :: RecBinding -> Closure -> Closure
-pattern x :- xs = (Left x) : xs
-infixr 5 :-
+import Language.MinPS.Environment
 
 data Value =
     VType
-  | VPi Closure T.Text (Term 'Checked) (Term 'Checked)
-  | VSigma Closure T.Text (Term 'Checked) (Term 'Checked)
-  | VLam Closure T.Text (Term 'Checked)
-  | VPair Closure (Term 'Checked) (Term 'Checked)
+  | VPi Ident (Closure (Term 'Checked, Term 'Checked))
+  | VSigma Ident (Closure (Term 'Checked, Term 'Checked))
+  | VLam Ident (Closure (Term 'Checked))
+  | VPair (Closure (Term 'Checked, Term 'Checked))
   | VEnum [Label]
   | VEnumLabel Label
-  | VLift Closure (Term 'Checked)
-  | VBox Closure (Term 'Checked)
-  | VRec Closure (Term 'Checked)
-  | VFold Closure (Term 'Checked)
+  | VLift (Closure (Term 'Checked))
+  | VBox (Closure (Term 'Checked))
+  | VRec (Closure (Term 'Checked))
+  | VFold (Closure (Term 'Checked))
   | VNeutral Neutral
   deriving Show
 
 data Neutral =
-    NVar Int
-  | NApp Neutral Closure (Term 'Checked)
-  | NSplit Neutral Closure T.Text T.Text (Term 'Checked)
-  | NCase Neutral Closure [(Label, Term 'Checked)]
+    NVar Ident
+  | NApp Neutral (Closure (Term 'Checked))
+  | NSplit Neutral Ident Ident (Closure (Term 'Checked))
+  | NCase Neutral (Closure [(Label, Term 'Checked)])
   | NForce Neutral
-  | NUnfold Neutral Closure T.Text (Term 'Checked)
+  | NUnfold Neutral Ident (Closure (Term 'Checked))
   deriving Show

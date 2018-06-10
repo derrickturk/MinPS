@@ -3,6 +3,7 @@
 
 module Language.MinPS.Check (
     TypeError
+    {--
   , MonadCheck(..)
   , check
   , infer
@@ -12,6 +13,7 @@ module Language.MinPS.Check (
   , runCheck
   , evalCheck
   , execCheck
+  --}
 ) where
 
 import Language.MinPS.Syntax
@@ -39,6 +41,8 @@ data TypeError =
   | DuplicateDefine T.Text
   deriving Show
 
+{--
+
 -- wait, do I want this?
 class (MonadEval m, MonadError TypeError m) => MonadCheck m where
   getBoundType :: RecBinding -> m (Maybe (T.Text, Closure, Term 'Checked))
@@ -61,7 +65,7 @@ check' _ Type ty = case ty of
   VType -> pure Type
   _ -> throwError $ Mismatch Type ty
 
-check' c (Var i) = undefined
+check' c (Var i) ty = undefined
 --TODO: right here is where we need a "type context" or "type closure"
 --  which would have some but not all overlap with the maybe-recursive type
 --  environment
@@ -170,3 +174,4 @@ evalCheck = evalState . runExceptT . getCheck
 
 execCheck :: Check a -> TypedRecEnv -> TypedRecEnv
 execCheck = execState . runExceptT . getCheck
+--}

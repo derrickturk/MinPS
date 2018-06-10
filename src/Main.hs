@@ -47,12 +47,17 @@ bindings =
   , Define "onePlusOne" (App (App (Var 1) (Var 2)) (Var 2))
   ]
 
+{--
 evalNormal :: Term 'Checked -> Term 'Checked
 evalNormal t = flip evalEval emptyRecEnv $ do
   t' <- eval t
   normalize t'
+--}
 
 main :: IO ()
 main = do
+  {--
   let one = evalNormal (Let bindings (Var 0))
   print one
+  --}
+  putStrLn "FML"

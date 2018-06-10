@@ -23,6 +23,7 @@ executable MinPS
                      , mtl >= 2.2 && < 2.3
   other-modules:       Language.MinPS.Syntax
                      , Language.MinPS.Value
+                     , Language.MinPS.Environment
                      , Language.MinPS.Eval
                      , Language.MinPS.Normalize
                      , Language.MinPS.Check
