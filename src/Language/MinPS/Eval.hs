@@ -28,13 +28,15 @@ eval' (Var x :@ c)
   | Just i <- lookup x c = do
       env <- get
       case lookupE i env of
-        Just (EnvEntry _ _ (Just t)) -> eval' t
+        Just (EnvEntry _ _ (Right t)) -> eval' t
     -- a horrible hack; we're going to rely on the typechecker to never
     --   give us "truly undefined" bindings; however, we will, in normalisation
     --   and equality checking
     --   need a way to mark variables which should "normalize to themselves";
     --   e.g. variables introduced by binders in pi or sigma types
-        Just (EnvEntry _ _ Nothing) -> pure $ VNeutral $ NVar i
+    --   note that i usually, but not always, == j
+    --   (it might get repointed in the course of equality checking)
+        Just (EnvEntry _ _ (Left j)) -> pure $ VNeutral $ NVar j
         Nothing -> error "ICE: undeclared variable passed check"
   | otherwise = error "ICE: unbound variable passed check"
 

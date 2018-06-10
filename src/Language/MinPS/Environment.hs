@@ -10,6 +10,7 @@ module Language.MinPS.Environment (
   , lookupE
   , declareE
   , defineE
+  , repointE
   , emptyS
   , emptyC
   , emptyE
@@ -33,9 +34,17 @@ infix 4 :@
 --   for unknown-type terms
 --   (think: evaluating function application)
 -- as well as declare types without values yet
+-- oh yeah, and for extra fun, undefined terms need to be re-pointable
+--   (i.e. "i'm not defined, but if I were I'd be the same as the guy
+--      over there") to support certain wacky corner cases of equality
+--      checking
 data EnvEntry = EnvEntry { envName :: Ident
+                           -- declared as a known type, or not
                          , envType :: Maybe (Closure (Term 'Checked))
-                         , envValue :: Maybe (Closure (Term 'Checked))
+                           -- defined as a term, or pointed to an
+                           --   environment slot (its own, by default, but the
+                           --   equality checker will twiddle this)
+                         , envValue :: Either Int (Closure (Term 'Checked))
                          } deriving Show
 
 newtype Env = Env { getEnv :: S.Seq EnvEntry }
@@ -54,7 +63,7 @@ declareE :: MonadState Env m
 declareE x ty = do
   env <- gets getEnv
   let next = S.length env
-  put $ Env $ env S.:|> EnvEntry x ty Nothing 
+  put $ Env $ env S.:|> EnvEntry x ty (Left next)
   pure next
 
 defineE :: MonadState Env m => Int -> Closure (Term 'Checked) -> m ()
@@ -62,7 +71,14 @@ defineE i t = do
   env <- gets getEnv
   put $ Env $ S.adjust' (install t) i env
   where
-    install val (EnvEntry x ty _) = EnvEntry x ty (Just val)
+    install val (EnvEntry x ty _) = EnvEntry x ty (Right val)
+
+repointE :: MonadState Env m => Int -> Int -> m ()
+repointE i j = do
+  env <- gets getEnv
+  put $ Env $ S.adjust' (repoint j) i env
+  where
+    repoint idx (EnvEntry x ty _) = EnvEntry x ty (Left idx)
 
 emptyS :: Scope
 emptyS = []
