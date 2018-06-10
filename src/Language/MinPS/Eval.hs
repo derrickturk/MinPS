@@ -24,16 +24,19 @@ eval' (Let ctxt t :@ c) = do
 
 eval' (Type :@ _) = pure VType
 
-eval' (Var i :@ c) = do
-  env <- get
-  case lookupSE i c env of
-    Just (EnvEntry (Just t) _) -> eval' t
+eval' (Var x :@ c)
+  | Just i <- lookup x c = do
+      env <- get
+      case lookupE i env of
+        Just (EnvEntry _ _ (Just t)) -> eval' t
     -- a horrible hack; we're going to rely on the typechecker to never
-    --   give us "truly undefined" bindings; however, we will, in normalisation,
+    --   give us "truly undefined" bindings; however, we will, in normalisation
+    --   and equality checking
     --   need a way to mark variables which should "normalize to themselves";
     --   e.g. variables introduced by binders in pi or sigma types
-    Just (EnvEntry Nothing _) -> pure $ VNeutral $ NVar i
-    _ -> error "ICE: undefined variable passed check"
+        Just (EnvEntry _ _ Nothing) -> pure $ VNeutral $ NVar i
+        Nothing -> error "ICE: undeclared variable passed check"
+  | otherwise = error "ICE: unbound variable passed check"
 
 eval' (Pi x ty t :@ c) = pure $ VPi x ((ty, t) :@ c)
 eval' (Sigma x ty t :@ c) = pure $ VSigma x ((ty, t) :@ c)
@@ -49,7 +52,7 @@ eval' (Fold t :@ c) = pure $ VFold (t :@ c)
 eval' (App f x :@ c) = eval' (f :@ c) >>= \case
   VNeutral n -> pure $ VNeutral $ NApp n (x :@ c)
   VLam v (body :@ c') -> do
-    i <- declareE Nothing
+    i <- declareE v Nothing
     defineE i (x :@ c)
     eval' (body :@ (v, i):c')
   _ -> error "ICE: invalid application passed check"
@@ -57,9 +60,9 @@ eval' (App f x :@ c) = eval' (f :@ c) >>= \case
 eval' (Split t x y u :@ c) = eval' (t :@ c) >>= \case
   VNeutral n -> pure $ VNeutral $ NSplit n x y (u :@ c)
   VPair ((t1, t2) :@ c') -> do
-    iX <- declareE Nothing
+    iX <- declareE x Nothing
     defineE iX (t1 :@ c')
-    iY <- declareE Nothing
+    iY <- declareE y Nothing
     defineE iY (t2 :@ c')
     eval' (u :@ (y, iY):(x, iX):c)
   _ -> error "ICE: invalid split passed check"
@@ -79,7 +82,7 @@ eval' (Force t :@ c) = eval' (t :@ c) >>= \case
 eval' (Unfold t x u :@ c) = eval' (t :@ c) >>= \case
   VNeutral n -> pure $ VNeutral $ NUnfold n x (u :@ c)
   VFold t' -> do
-    i <- declareE Nothing
+    i <- declareE x Nothing
     defineE i t'
     eval' (u :@ (x, i):c)
   _ -> error "ICE: invalid unfold passed check"
@@ -87,7 +90,7 @@ eval' (Unfold t x u :@ c) = eval' (t :@ c) >>= \case
 evalContext :: MonadState Env m => Context 'Checked -> Scope -> m Scope
 evalContext [] c = pure c
 evalContext ((Declare x ty):rest) c = do
-  i <- declareE $ Just (ty :@ c)
+  i <- declareE x $ Just (ty :@ c)
   evalContext rest ((x, i):c)
 evalContext ((Define x t):rest) c = case lookup x c of
     Just i -> do

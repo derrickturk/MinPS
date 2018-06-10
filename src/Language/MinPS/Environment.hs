@@ -33,8 +33,9 @@ infix 4 :@
 --   for unknown-type terms
 --   (think: evaluating function application)
 -- as well as declare types without values yet
-data EnvEntry = EnvEntry { envValue :: Maybe (Closure (Term 'Checked))
+data EnvEntry = EnvEntry { envName :: Ident
                          , envType :: Maybe (Closure (Term 'Checked))
+                         , envValue :: Maybe (Closure (Term 'Checked))
                          } deriving Show
 
 newtype Env = Env { getEnv :: S.Seq EnvEntry }
@@ -46,11 +47,14 @@ lookupSE x s e = lookup x s >>= \i -> lookupE i e
 lookupE :: Int -> Env -> Maybe EnvEntry
 lookupE i e = S.lookup i $ getEnv e
 
-declareE :: MonadState Env m => Maybe (Closure (Term 'Checked)) -> m Int
-declareE ty = do
+declareE :: MonadState Env m
+         => Ident
+         -> Maybe (Closure (Term 'Checked))
+         -> m Int
+declareE x ty = do
   env <- gets getEnv
   let next = S.length env
-  put $ Env $ env S.:|> EnvEntry Nothing ty
+  put $ Env $ env S.:|> EnvEntry x ty Nothing 
   pure next
 
 defineE :: MonadState Env m => Int -> Closure (Term 'Checked) -> m ()
@@ -58,7 +62,7 @@ defineE i t = do
   env <- gets getEnv
   put $ Env $ S.adjust' (install t) i env
   where
-    install val (EnvEntry _ ty) = EnvEntry (Just val) ty
+    install val (EnvEntry x ty _) = EnvEntry x ty (Just val)
 
 emptyS :: Scope
 emptyS = []

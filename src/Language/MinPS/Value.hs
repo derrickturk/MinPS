@@ -24,7 +24,7 @@ data Value =
   deriving Show
 
 data Neutral =
-    NVar Ident
+    NVar Int
   | NApp Neutral (Closure (Term 'Checked))
   | NSplit Neutral Ident Ident (Closure (Term 'Checked))
   | NCase Neutral (Closure [(Label, Term 'Checked)])

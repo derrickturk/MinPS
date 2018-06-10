@@ -36,13 +36,13 @@ equalsBound :: MonadState Env m
             -> Closure (Term 'Checked)
             -> m Bool
 equalsBound ty x (t :@ c) y (u :@ d) = do
-  iX <- declareE ty
+  iX <- declareE x ty
   vT <- eval' (t :@ (x, iX):c)
   vU <- eval' (u :@ (y, iX):d)
   vT .=. vU
 
 instance Equals Neutral where
-  NVar x .=. NVar y
-    | x == y = pure True
+  NVar i .=. NVar j
+    | i == j = pure True
     | otherwise = error "oh god"
   _ .=. _ = pure False

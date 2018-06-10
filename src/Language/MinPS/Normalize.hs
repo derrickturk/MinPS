@@ -1,4 +1,4 @@
-{-# LANGUAGE DataKinds, FlexibleContexts #-}
+{-# LANGUAGE DataKinds, FlexibleContexts, LambdaCase #-}
 
 module Language.MinPS.Normalize (
     Normalize(..)
@@ -19,18 +19,18 @@ instance Normalize Value where
 
   normalize (VPi x ((ty, t) :@ c)) = do
     nTy <- eval' (ty :@ c) >>= normalize
-    i <- declareE $ Just (ty :@ c)
+    i <- declareE x $ Just (ty :@ c)
     nT <- eval' (t :@ (x, i):c) >>= normalize
     pure $ Pi x nTy nT
 
   normalize (VSigma x ((ty, t) :@ c)) = do
     nTy <- eval' (ty :@ c) >>= normalize
-    i <- declareE $ Just (ty :@ c)
+    i <- declareE x $ Just (ty :@ c)
     nT <- eval' (t :@ (x, i):c) >>= normalize
     pure $ Sigma x nTy nT
 
   normalize (VLam x (body :@ c)) = do
-    i <- declareE Nothing
+    i <- declareE x Nothing
     nBody <- eval' (body :@ (x, i):c) >>= normalize
     pure $ Lam x nBody
 
@@ -54,15 +54,17 @@ instance Normalize Value where
   normalize (VNeutral n) = normalize n
 
 instance Normalize Neutral where
-  normalize (NVar i) = pure $ Var i
+  normalize (NVar i) = gets (lookupE i) >>= \case
+    Just (EnvEntry x _ _) -> pure $ Var x
+    Nothing -> error "ICE: invalid environment index in normalization"
 
   normalize (NApp n (t :@ c)) =
     App <$> normalize n <*> (eval' (t :@ c) >>= normalize)
 
   normalize (NSplit n x y (t :@ c)) = do
     nN <- normalize n
-    iX <- declareE Nothing
-    iY <- declareE Nothing
+    iX <- declareE x Nothing
+    iY <- declareE y Nothing
     nT <- eval' (t :@ (y, iY):(x, iX):c) >>= normalize
     pure $ Split nN x y nT
 
@@ -76,6 +78,6 @@ instance Normalize Neutral where
 
   normalize (NUnfold n x (t :@ c)) = do
     nN <- normalize n
-    i <- declareE Nothing
+    i <- declareE x Nothing
     nT <- eval' (t :@ (x, i):c) >>= normalize
     pure $ Unfold nN x nT
