@@ -32,7 +32,7 @@ import qualified Data.Text as T
 --   mutually-recursive bindings
 
 data TypeError =
-    Mismatch (Term 'Checked) (Term 'Checked)
+    Mismatch (Term 'Unchecked) Value
   | Undeclared T.Text
   | Undefined T.Text
   | DuplicateDeclare T.Text
@@ -51,10 +51,20 @@ check' :: Closure
        -> Term 'Unchecked
        -> Value
        -> Check (Term 'Checked)
+
 check' c (Let ctxt t) ty = do
   (ctxt', c') <- checkContext ctxt c
   t' <- check' c' t ty
   pure $ Let ctxt' t'
+
+check' _ Type ty = case ty of
+  VType -> pure Type
+  _ -> throwError $ Mismatch Type ty
+
+check' c (Var i) = undefined
+--TODO: right here is where we need a "type context" or "type closure"
+--  which would have some but not all overlap with the maybe-recursive type
+--  environment
 
 infer :: Term 'Unchecked -> Check (Term 'Checked, Term 'Checked)
 infer = infer' []
