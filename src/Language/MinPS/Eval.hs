@@ -1,155 +1,97 @@
 {-# LANGUAGE GADTs, DataKinds, KindSignatures, StandaloneDeriving #-}
-{-# LANGUAGE LambdaCase, GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE FlexibleContexts, LambdaCase, GeneralizedNewtypeDeriving #-}
 
 module Language.MinPS.Eval (
-    {--
-    MonadEval(..)
-  , eval
+    eval
   , eval'
-  , RecEnv
-  , emptyRecEnv
-  , Eval
   , runEval
-  , evalEval
-  , execEval
-  --}
+  , runEval'
 ) where
 
 import Control.Monad.State
-import qualified Data.Sequence as S
-import qualified Data.Text as T
 
 import Language.MinPS.Syntax
+import Language.MinPS.Environment
 import Language.MinPS.Value
 
-{--
+eval :: MonadState Env m => Term 'Checked -> m Value
+eval = eval' . emptyC
 
-class Monad m => MonadEval m where
-  getBoundTerm :: RecBinding -> m (Maybe (T.Text, Closure, Term 'Checked))
-  addBoundTerm :: (T.Text, Closure, Term 'Checked) -> m RecBinding
-  updateBoundTerm :: RecBinding -> (T.Text, Closure, Term 'Checked) -> m ()
-
-eval :: MonadEval m => Term 'Checked -> m Value
-eval = eval' []
-
-eval' :: MonadEval m => Closure -> Term 'Checked -> m Value
-eval' c (Let ctxt t) = do
+eval' :: MonadState Env m => Closure (Term 'Checked) -> m Value
+eval' (Let ctxt t :@ c) = do
   c' <- evalContext ctxt c
-  eval' c' t
+  eval' (t :@ c')
 
-eval' _ Type = pure VType
-eval' c (Var i) = lookupVar c i
-eval' c (Pi x ty t) = pure $ VPi c x ty t
-eval' c (Sigma x ty t) = pure $ VSigma c x ty t
-eval' c (Lam x t) = pure $ VLam c x t
-eval' c (Pair t u) = pure $ VPair c t u
-eval' _ (Enum lbls) = pure $ VEnum lbls
-eval' _ (EnumLabel lbl) = pure $ VEnumLabel lbl
-eval' c (Lift t) = pure $ VLift c t
-eval' c (Box t) = pure $ VBox c t
-eval' c (Rec t) = pure $ VRec c t
-eval' c (Fold t) = pure $ VFold c t
+eval' (Type :@ _) = pure VType
 
-eval' c (App f x) = eval' c f >>= \case
-  VNeutral n -> pure $ VNeutral $ NApp n c x
-  VLam c' _ body -> do
-    x' <- eval' c x
-    eval' (x' :+ c') body
+eval' (Var i :@ c) = do
+  env <- get
+  case lookupSE i c env of
+    Just (EnvEntry (Just t) _) -> eval' t
+    _ -> error "ICE: undefined variable passed check"
+
+eval' (Pi x ty t :@ c) = pure $ VPi x ((ty, t) :@ c)
+eval' (Sigma x ty t :@ c) = pure $ VSigma x ((ty, t) :@ c)
+eval' (Lam x t :@ c) = pure $ VLam x (t :@ c)
+eval' (Pair t u :@ c) = pure $ VPair ((t, u) :@ c)
+eval' (Enum lbls :@ _) = pure $ VEnum lbls
+eval' (EnumLabel lbl :@ _) = pure $ VEnumLabel lbl
+eval' (Lift t :@ c) = pure $ VLift (t :@ c)
+eval' (Box t :@ c) = pure $ VBox (t :@ c)
+eval' (Rec t :@ c) = pure $ VRec (t :@ c)
+eval' (Fold t :@ c) = pure $ VFold (t :@ c)
+
+eval' (App f x :@ c) = eval' (f :@ c) >>= \case
+  VNeutral n -> pure $ VNeutral $ NApp n (x :@ c)
+  VLam v (body :@ c') -> do
+    i <- declareE Nothing
+    defineE i (x :@ c)
+    eval' (body :@ (v, i):c')
   _ -> error "ICE: invalid application passed check"
 
-eval' c (Split t x y u) = eval' c t >>= \case
-  VNeutral n -> pure $ VNeutral $ NSplit n c x y u
-  VPair c' t1 t2 -> do
-    t1' <- eval' c' t1
-    t2' <- eval' c' t2
-    eval' (t2' :+ t1' :+ c) u
+eval' (Split t x y u :@ c) = eval' (t :@ c) >>= \case
+  VNeutral n -> pure $ VNeutral $ NSplit n x y (u :@ c)
+  VPair ((t1, t2) :@ c') -> do
+    iX <- declareE Nothing
+    defineE iX (t1 :@ c')
+    iY <- declareE Nothing
+    defineE iY (t2 :@ c')
+    eval' (u :@ (y, iY):(x, iX):c)
   _ -> error "ICE: invalid split passed check"
 
-eval' c (Case t cases) = eval' c t >>= \case
-  VNeutral n -> pure $ VNeutral $ NCase n c cases
+eval' (Case t cases :@ c) = eval' (t :@ c) >>= \case
+  VNeutral n -> pure $ VNeutral $ NCase n (cases :@ c)
   VEnumLabel l -> case lookup l cases of
-    Just u -> eval' c u
+    Just u -> eval' (u :@ c)
     Nothing -> error "ICE: invalid case passed check"
   _ -> error "ICE: invalid case passed check"
 
-eval' c (Force t) = eval' c t >>= \case
+eval' (Force t :@ c) = eval' (t :@ c) >>= \case
   VNeutral n -> pure $ VNeutral $ NForce n
-  VBox c' t' -> eval' c' t'
+  VBox t' -> eval' t'
   _ -> error "ICE: invalid force passed check"
 
-eval' c (Unfold t x u) = eval' c t >>= \case
-  VNeutral n -> pure $ VNeutral $ NUnfold n c x u
-  VFold c' t' -> do
-    t'' <- eval' c' t'
-    eval' (t'' :+ c) u
+eval' (Unfold t x u :@ c) = eval' (t :@ c) >>= \case
+  VNeutral n -> pure $ VNeutral $ NUnfold n x (u :@ c)
+  VFold t' -> do
+    i <- declareE Nothing
+    defineE i t'
+    eval' (u :@ (x, i):c)
   _ -> error "ICE: invalid unfold passed check"
 
-lookupVar :: MonadEval m => Closure -> Int -> m Value
-lookupVar c i = go i c i where
-  go ix [] _ = pure $ VNeutral $ NVar ix
-  go _ (v :+ _) 0 = pure v
-  go _ (recBinding :- _) 0 = do
-    entry <- getBoundTerm recBinding
-    case entry of
-      Just (_, c', t) -> eval' c' t
-      Nothing -> error "ICE: closure & rec. env. out of sync"
-  go ix (_:vs) n = go ix vs (n - 1)
+evalContext :: MonadState Env m => Context 'Checked -> Scope -> m Scope
+evalContext [] c = pure c
+evalContext ((Declare x ty):rest) c = do
+  i <- declareE $ Just (ty :@ c)
+  evalContext rest ((x, i):c)
+evalContext ((Define x t):rest) c = case lookup x c of
+    Just i -> do
+      defineE i (t :@ c)
+      evalContext rest c
+    _ -> error "ICE: define-without-declare passed check"
 
-evalContext :: MonadEval m => Context 'Checked -> Closure -> m Closure
-evalContext = go [] where
-  go :: MonadEval m
-     => [(T.Text, RecBinding)]
-     -> Context 'Checked
-     -> Closure
-     -> m Closure
+runEval :: Env -> Term 'Checked -> Value
+runEval e t = evalState (eval t) e
 
-  go _ [] c = pure c
-
-  go n ((Declare x _):rest) c = do
-    binding <- addBoundTerm $ recUndefined x
-    go ((x, binding):n) rest (binding :- c)
-
-  go n ((Define x t):rest) c = do
-    let Just binding = lookup x n
-    updateBoundTerm binding (x, c, t)
-    go n rest c
-
-  -- this is used as a placeholder and can't escape evalContext for
-  --   well-typed contexts; if it ever shows up downstream we've made a
-  --   terrible mistake
-  recUndefined :: T.Text -> (T.Text, Closure, Term 'Checked)
-  recUndefined x = (x, [], Type)
-
-data RecEnv = RecEnv
-  { getRecEnv :: S.Seq (T.Text, Closure, Term 'Checked)
-  , nextBinding :: Int
-  }
-
-emptyRecEnv :: RecEnv
-emptyRecEnv = RecEnv S.empty 0
-
-newtype Eval a = Eval { getEval :: State RecEnv a }
-  deriving (Functor, Applicative, Monad, MonadState RecEnv)
-
-runEval :: Eval a -> RecEnv -> (a, RecEnv)
-runEval = runState . getEval
-
-evalEval :: Eval a -> RecEnv -> a
-evalEval = evalState . getEval
-
-execEval :: Eval a -> RecEnv -> RecEnv
-execEval = execState . getEval
-
-instance MonadEval Eval where
-  getBoundTerm (MkRecBinding x) = gets (S.lookup x . getRecEnv)
-
-  addBoundTerm entry = do
-    RecEnv env next <- get
-    put $ RecEnv (env S.:|> entry) (next + 1)
-    pure $ MkRecBinding next
-
-  updateBoundTerm (MkRecBinding x) entry = do
-    RecEnv env next <- get
-    put $ RecEnv (S.update x entry env) next
-
---}
+runEval' :: Env -> Closure (Term 'Checked) -> Value
+runEval' e t = evalState (eval' t) e

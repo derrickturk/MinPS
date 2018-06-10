@@ -32,7 +32,7 @@ type Context s = [Stmt s]
 data Term :: TermState -> * where
   Let :: Context s -> Term s -> Term s
   Type :: Term s
-  Var :: Int -> Term s
+  Var :: Ident -> Term s
   Pi :: Ident -> Term s -> Term s -> Term s
   Sigma :: Ident -> Term s -> Term s -> Term s
   Lam :: Ident -> Term s -> Term s

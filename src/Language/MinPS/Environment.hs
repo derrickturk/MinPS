@@ -3,11 +3,16 @@
 
 module Language.MinPS.Environment (
     Scope
-  , Closure
+  , Closure(..)
   , EnvEntry(..)
   , Env
   , lookupSE
   , lookupE
+  , declareE
+  , defineE
+  , emptyS
+  , emptyC
+  , emptyE
 ) where
 
 import Language.MinPS.Syntax
@@ -20,10 +25,16 @@ import qualified Data.Text as T
 type Scope = [(Ident, Int)]
 
 data Closure :: * -> * where
-  Closure :: Scope -> a -> Closure a
+  (:@) :: a -> Scope -> Closure a
+infix 4 :@
 
+-- ok, sooooooooo
+-- we've got to be able to define values (and thus declare new slots)
+--   for unknown-type terms
+--   (think: evaluating function application)
+-- as well as declare types without values yet
 data EnvEntry = EnvEntry { envValue :: Maybe (Closure (Term 'Checked))
-                         , envType :: Closure (Term 'Checked)
+                         , envType :: Maybe (Closure (Term 'Checked))
                          } deriving Show
 
 newtype Env = Env { getEnv :: S.Seq EnvEntry }
@@ -35,7 +46,7 @@ lookupSE x s e = lookup x s >>= \i -> lookupE i e
 lookupE :: Int -> Env -> Maybe EnvEntry
 lookupE i e = S.lookup i $ getEnv e
 
-declareE :: MonadState Env m => Closure (Term 'Checked) -> m Int
+declareE :: MonadState Env m => Maybe (Closure (Term 'Checked)) -> m Int
 declareE ty = do
   env <- gets getEnv
   let next = S.length env
@@ -47,9 +58,18 @@ defineE i t = do
   env <- gets getEnv
   put $ Env $ S.adjust' (install t) i env
   where
-    install t (EnvEntry _ ty) = EnvEntry (Just t) ty
+    install val (EnvEntry _ ty) = EnvEntry (Just val) ty
+
+emptyS :: Scope
+emptyS = []
+
+emptyC :: a -> Closure a
+emptyC = (:@ emptyS)
+
+emptyE :: Env
+emptyE = Env S.empty
 
 instance Show a => Show (Closure a) where
-  show (Closure [] x) = show x
-  show (Closure c x) = show x ++ "[with " ++ intercalate ", " binds ++ "]" where
-    binds = fmap (\(x, i) -> T.unpack (getIdent x) ++ "@" ++ show i) c
+  show (x :@ []) = show x
+  show (x :@ c) = show x ++ "[with " ++ intercalate ", " binds ++ "]" where
+    binds = fmap (\(var, i) -> T.unpack (getIdent var) ++ "@" ++ show i) c

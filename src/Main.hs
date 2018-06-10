@@ -6,6 +6,7 @@ module Main where
 import Language.MinPS.Syntax
 import Language.MinPS.Eval
 import Language.MinPS.Value
+import Language.MinPS.Environment
 import Language.MinPS.Normalize
 
 bindings :: Context 'Checked
@@ -15,36 +16,37 @@ bindings =
 
   , Declare "Nat" Type
   , Define "Nat" (Sigma "l" (Enum [MkLabel "z", MkLabel "s"])
-                            (Case (Var 0) [ (MkLabel "z", Var 2)
-                                          , (MkLabel "s", Rec (Var 1))
-                                          ]))
+                            (Case (Var "l") [ (MkLabel "z", Var "Unit")
+                                            , (MkLabel "s", Rec (Var "Nat"))
+                                            ]))
 
-  , Declare "zero" (Var 1)
+  , Declare "zero" (Var "Nat")
   , Define "zero" (Pair (EnumLabel (MkLabel "z"))
                         (EnumLabel (MkLabel "unit")))
 
-  , Declare "succ" (Pi "_" (Var 2) (Var 2))
+  , Declare "succ" (Pi "_" (Var "Nat") (Var "Nat"))
   , Define "succ" (Lam "n" (Pair (EnumLabel (MkLabel "s"))
-                                 (Fold (Var 0))))
+                                 (Fold (Var "n"))))
 
-  , Declare "one" (Var 3)
-  , Define "one" (App (Var 1) (Var 2))
+  , Declare "one" (Var "Nat")
+  , Define "one" (App (Var "succ") (Var "zero"))
 
-  , Declare "add" (Pi "m" (Var 4) (Pi "n" (Var 5) (Var 5)))
+  , Declare "add" (Pi "m" (Var "Nat") (Pi "n" (Var "Nat") (Var "Nat")))
   , Define "add"
       (Lam "m"
         (Lam "n"
-          (Split (Var 1) "lm" "m'"
-            (Force (Case (Var 1)
-                     [ (MkLabel "z", Box (Var 2))
-                     , (MkLabel "s", Box (App (Var 6)
-                                              (App (App (Var 4)
-                                                        (Unfold (Var 0) "_"
-                                                                (Var 0)))
-                                                   (Var 2))))
+          (Split (Var "m") "lm" "m'"
+            (Force (Case (Var "lm")
+                     [ (MkLabel "z", Box (Var "n"))
+                     , (MkLabel "s", Box (App (Var "succ")
+                                              (App (App (Var "add")
+                                                        (Unfold (Var "m'") "m'"
+                                                                (Var "m'")))
+                                                   (Var "n"))))
                                     ])))))
-  , Declare "onePlusOne" (Var 5)
-  , Define "onePlusOne" (App (App (Var 1) (Var 2)) (Var 2))
+
+  , Declare "onePlusOne" (Var "Nat")
+  , Define "onePlusOne" (App (App (Var "add") (Var "one")) (Var "one"))
   ]
 
 {--
@@ -56,8 +58,5 @@ evalNormal t = flip evalEval emptyRecEnv $ do
 
 main :: IO ()
 main = do
-  {--
-  let one = evalNormal (Let bindings (Var 0))
+  let one = runEval emptyE (Let bindings (Var "one"))
   print one
-  --}
-  putStrLn "FML"
