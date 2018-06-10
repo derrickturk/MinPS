@@ -4,10 +4,11 @@
 module Main where
 
 import Language.MinPS.Syntax
-import Language.MinPS.Eval
-import Language.MinPS.Value
 import Language.MinPS.Environment
+import Language.MinPS.Eval
 import Language.MinPS.Normalize
+
+import Control.Monad.State
 
 bindings :: Context 'Checked
 bindings =
@@ -49,14 +50,14 @@ bindings =
   , Define "onePlusOne" (App (App (Var "add") (Var "one")) (Var "one"))
   ]
 
-{--
 evalNormal :: Term 'Checked -> Term 'Checked
-evalNormal t = flip evalEval emptyRecEnv $ do
-  t' <- eval t
-  normalize t'
---}
+evalNormal t = evalState (eval t >>= normalize) emptyE
 
 main :: IO ()
 main = do
-  let one = runEval emptyE (Let bindings (Var "one"))
-  print one
+  let two = runEval emptyE (Let bindings (Var "onePlusOne"))
+  putStr "eval: "
+  print two
+  let twoN = evalNormal (Let bindings (Var "onePlusOne"))
+  putStr "normalized: "
+  print twoN

@@ -28,6 +28,11 @@ eval' (Var i :@ c) = do
   env <- get
   case lookupSE i c env of
     Just (EnvEntry (Just t) _) -> eval' t
+    -- a horrible hack; we're going to rely on the typechecker to never
+    --   give us "truly undefined" bindings; however, we will, in normalisation,
+    --   need a way to mark variables which should "normalize to themselves";
+    --   e.g. variables introduced by binders in pi or sigma types
+    Just (EnvEntry Nothing _) -> pure $ VNeutral $ NVar i
     _ -> error "ICE: undefined variable passed check"
 
 eval' (Pi x ty t :@ c) = pure $ VPi x ((ty, t) :@ c)
