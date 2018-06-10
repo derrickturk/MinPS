@@ -3,10 +3,11 @@
 
 module Language.MinPS.Check (
     TypeError
+  , check
+  , check'
+  , infer
     {--
   , MonadCheck(..)
-  , check
-  , infer
   , TypedRecEnv
   , emptyTypedRecEnv
   , Check
@@ -18,43 +19,57 @@ module Language.MinPS.Check (
 
 import Language.MinPS.Syntax
 import Language.MinPS.Value
+import Language.MinPS.Environment
 import Language.MinPS.Eval
+import Language.MinPS.Equals
 
 import Control.Monad.State
 import Control.Monad.Except
 import qualified Data.Sequence as S
 import qualified Data.Set as Set
-import qualified Data.Text as T
-
--- we're going to use the Closure structure to store the types
---   (as WHNF forms) of bound values during checking in addition
---   to their values as in Eval
--- we'll adapt the RecEnv idea and track two environments, the environment
---   of values and the environment of types, for possibly
---   mutually-recursive bindings
 
 data TypeError =
-    Mismatch (Term 'Unchecked) Value
-  | Undeclared T.Text
-  | Undefined T.Text
-  | DuplicateDeclare T.Text
-  | DuplicateDefine T.Text
+    Mismatch Value Value
+  | Undeclared Ident
+  | Undefined Ident
+  | DuplicateDeclare Ident
+  | DuplicateDefine Ident
   deriving Show
 
+check :: (MonadState Env m, MonadError TypeError m)
+      => Term 'Unchecked
+      -> Closure (Term 'Checked)
+      -> m (Term 'Checked)
+check t = check' $ emptyC t
+
+check' :: (MonadState Env m, MonadError TypeError m)
+       => Closure (Term 'Unchecked)
+       -> Closure (Term 'Checked)
+       -> m (Term 'Checked)
+
+-- TODO: env-altering cases
+
+check' t ty = eval' ty >>= checkValue t
+
+checkValue :: (MonadState Env m, MonadError TypeError m)
+           => Closure (Term 'Unchecked)
+           -> Value
+           -> m (Term 'Checked)
+
+-- TODO: un-inferable cases
+
+checkValue t v = do 
+  (ty, t') <- infer t
+  v' <- eval' ty
+  eq <- v .=. v'
+  if eq then pure t' else throwError (Mismatch v v')
+
+infer :: MonadState Env m
+      => Closure (Term 'Unchecked) -- the term
+      -> m (Closure (Term 'Checked), Term 'Checked) -- the type + closure & the term
+infer = undefined
+
 {--
-
--- wait, do I want this?
-class (MonadEval m, MonadError TypeError m) => MonadCheck m where
-  getBoundType :: RecBinding -> m (Maybe (T.Text, Closure, Term 'Checked))
-  addBoundType :: (T.Text, Closure, Term 'Checked) -> m RecBinding
-
-check :: Term 'Unchecked -> Value -> Check (Term 'Checked)
-check = check' []
-
-check' :: Closure
-       -> Term 'Unchecked
-       -> Value
-       -> Check (Term 'Checked)
 
 check' c (Let ctxt t) ty = do
   (ctxt', c') <- checkContext ctxt c
