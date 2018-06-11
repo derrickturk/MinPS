@@ -6,15 +6,9 @@ module Language.MinPS.Check (
   , check
   , check'
   , infer
-    {--
-  , MonadCheck(..)
-  , TypedRecEnv
-  , emptyTypedRecEnv
-  , Check
   , runCheck
-  , evalCheck
-  , execCheck
-  --}
+  , runCheck'
+  , runInfer
 ) where
 
 import Language.MinPS.Syntax
@@ -29,6 +23,7 @@ import qualified Data.Set as Set
 
 data TypeError =
     Mismatch Value Value
+  | ExpectedGotLambda Value
   | ExpectedPiType Value
   | ExpectedLiftedType Value
   | Undeclared Ident
@@ -59,8 +54,14 @@ checkValue :: (MonadState Env m, MonadError TypeError m)
            -> Value
            -> m (Term 'Checked)
 
--- TODO: un-inferable cases
+-- some cases can't be inferred...
+checkValue (Lam x t :@ c) (VPi y ((ty, u) :@ d)) = do
+  i <- declareE x (Just (ty :@ d))
+  t' <- check' (t :@ (x, i):c) (u :@ (y, i):d)
+  pure $ Lam x t'
+checkValue (Lam _ _ :@ _) v = throwError $ ExpectedGotLambda v
 
+-- ... the rest can
 checkValue t v = do 
   (ty, t') <- infer t
   v' <- eval' ty
@@ -136,6 +137,23 @@ infer (Force t :@ c) = do
 
 -- handle non-inferable cases
 infer t = throwError $ NotInferable t
+
+runCheck :: Env
+         -> Term 'Unchecked
+         -> Closure (Term 'Checked)
+         -> Either TypeError (Term 'Checked)
+runCheck e t ty = evalState (runExceptT $ check t ty) e
+
+runCheck' :: Env
+          -> Closure (Term 'Unchecked)
+          -> Closure (Term 'Checked)
+          -> Either TypeError (Term 'Checked)
+runCheck' e t ty = evalState (runExceptT $ check' t ty) e
+
+runInfer :: Env
+         -> Closure (Term 'Unchecked)
+         -> Either TypeError (Closure (Term 'Checked), Term 'Checked)
+runInfer e t = evalState (runExceptT $ infer t) e
 
 checkContext :: (MonadState Env m, MonadError TypeError m)
              => Closure (Context 'Unchecked)
