@@ -18,10 +18,10 @@ data TermState = Unchecked
                deriving Show
 
 newtype Label = MkLabel { getLabel :: T.Text }
-  deriving (Show, Eq, IsString)
+  deriving (Show, Eq, IsString, Ord)
 
 newtype Ident = MkIdent { getIdent :: T.Text }
-  deriving (Show, Eq, IsString)
+  deriving (Show, Eq, IsString, Ord)
 
 data Stmt :: TermState -> * where
   Declare :: Ident -> Term s -> Stmt s

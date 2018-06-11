@@ -50,8 +50,8 @@ data EnvEntry = EnvEntry { envName :: Ident
 newtype Env = Env { getEnv :: S.Seq EnvEntry }
   deriving Show
 
-lookupSE :: Ident -> Scope -> Env -> Maybe EnvEntry
-lookupSE x s e = lookup x s >>= \i -> lookupE i e
+lookupSE :: Ident -> Scope -> Env -> Maybe (EnvEntry, Int)
+lookupSE x s e = lookup x s >>= \i -> lookupE i e >>= \ee -> pure (ee, i)
 
 lookupE :: Int -> Env -> Maybe EnvEntry
 lookupE i e = S.lookup i $ getEnv e

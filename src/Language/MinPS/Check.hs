@@ -25,7 +25,6 @@ import Language.MinPS.Equals
 
 import Control.Monad.State
 import Control.Monad.Except
-import qualified Data.Sequence as S
 import qualified Data.Set as Set
 
 data TypeError =
@@ -64,129 +63,51 @@ checkValue t v = do
   eq <- v .=. v'
   if eq then pure t' else throwError (Mismatch v v')
 
-infer :: MonadState Env m
+infer :: (MonadState Env m, MonadError TypeError m)
       => Closure (Term 'Unchecked) -- the term
       -> m (Closure (Term 'Checked), Term 'Checked) -- the type + closure & the term
-infer = undefined
 
-{--
+infer (Let ctxt t :@ c) = do
+  (ctxt' :@ c') <- checkContext (ctxt :@ c)
+  (ty, t') <- infer (t :@ c')
+  pure (ty, Let ctxt' t')
 
-check' c (Let ctxt t) ty = do
-  (ctxt', c') <- checkContext ctxt c
-  t' <- check' c' t ty
-  pure $ Let ctxt' t'
+infer (Type :@ _) = pure (emptyC Type, Type)
 
-check' _ Type ty = case ty of
-  VType -> pure Type
-  _ -> throwError $ Mismatch Type ty
+infer (Var x :@ c) = gets (lookupSE x c) >>= \case
+  Just (EnvEntry _ (Just ty) _, _) -> pure (ty, Var x)
+  _ -> throwError $ Undeclared x
 
-check' c (Var i) ty = undefined
---TODO: right here is where we need a "type context" or "type closure"
---  which would have some but not all overlap with the maybe-recursive type
---  environment
+checkContext :: (MonadState Env m, MonadError TypeError m)
+             => Closure (Context 'Unchecked)
+             -> m (Closure (Context 'Checked))
+checkContext = go Set.empty Set.empty where
+  go :: (MonadState Env m, MonadError TypeError m)
+     => Set.Set Ident
+     -> Set.Set Ident
+     -> Closure (Context 'Unchecked)
+     -> m (Closure (Context 'Checked))
 
-infer :: Term 'Unchecked -> Check (Term 'Checked, Term 'Checked)
-infer = infer' []
+  go decls defns ([] :@ c) =
+    case Set.lookupMin (Set.difference decls defns) of
+      Nothing -> pure ([] :@ c)
+      Just x -> throwError $ Undefined x
 
-infer' :: Closure -> Term 'Unchecked -> Check (Term 'Checked, Term 'Checked)
-infer' = undefined
+  go decls defns ((Declare x ty):rest :@ c) = if Set.member x decls
+    then throwError $ DuplicateDeclare x
+    else do
+      ty' <- check' (ty :@ c) (emptyC Type)
+      i <- declareE x (Just (ty' :@ c))
+      (rest' :@ c') <- go (Set.insert x decls) defns (rest :@ (x, i):c)
+      pure ((Declare x ty'):rest' :@ c')
 
-checkContext :: Context 'Unchecked
-             -> Closure
-             -> Check (Context 'Checked, Closure)
-checkContext ctxt clos = go [] ctxt clos >>= checkUnique where
-  go :: [(T.Text, RecBinding)]
-     -> Context 'Unchecked
-     -> Closure
-     -> Check (Context 'Checked, Closure)
-
-  go _ [] c = pure ([], c) -- TODO: all-defined check?
-
-  go n ((Declare x ty):rest) c = do
-    ty' <- check' c ty VType
-    binding <- addBoundType (x, c, ty')
-    (rest', c') <- go ((x, binding):n) rest (binding :- c)
-    pure ((Declare x ty'):rest', c')
-
-  go n ((Define x t):rest) c = do
-    case lookup x n of
-      Nothing -> throwError $ Undeclared x
-      Just binding -> getBoundType binding >>= \case
-        Nothing -> throwError $ Undeclared x -- shouldn't happen
-        Just (_, cTy, ty) -> do
-          ty' <- eval' cTy ty
-          t' <- check' c t ty'
-          updateBoundTerm binding (x, c, t')
-          (rest', c') <- go n rest c
-          pure ((Define x t'):rest', c')
-
-checkUnique :: (Context 'Checked, Closure) -> Check (Context 'Checked, Closure)
-checkUnique (ctxt, c) = go Set.empty Set.empty ctxt >> pure (ctxt, c) where
-  go decls defns [] = case Set.lookupMin (Set.difference decls defns) of
-    Nothing -> pure ()
-    Just x -> throwError (Undefined x)
-  go decls defns ((Declare x _):rest) = if Set.member x decls
-    then throwError (DuplicateDeclare x)
-    else go (Set.insert x decls) defns rest
-  go decls defns ((Define x _):rest) = if Set.member x defns
-    then throwError (DuplicateDefine x)
-    else go decls (Set.insert x defns) rest
-
-data TypedRecEnv = TypedRecEnv
-  { getTypeEnv :: S.Seq (T.Text, Maybe (Closure, Term 'Checked))
-  , getValueEnv :: S.Seq (T.Text, Maybe (Closure, Term 'Checked))
-  , _nextBinding :: Int
-  }
-
-emptyTypedRecEnv :: TypedRecEnv
-emptyTypedRecEnv = TypedRecEnv S.empty S.empty 0
-
-newtype Check a = Check { getCheck :: ExceptT TypeError (State TypedRecEnv) a }
-  deriving ( Functor
-           , Applicative
-           , Monad
-           , MonadError TypeError
-           , MonadState TypedRecEnv
-           )
-
-instance MonadEval Check where
-  getBoundTerm (MkRecBinding i) = do
-    rec <- gets (S.lookup i . getValueEnv)
-    pure $ do
-      (x, val) <- rec
-      (c, t) <- val
-      pure $ (x, c, t)
-
-  addBoundTerm (x, c, t) = do
-    TypedRecEnv tyEnv tmEnv next <- get
-    put $ TypedRecEnv
-      (tyEnv S.:|> (x, Nothing)) (tmEnv S.:|> (x, Just (c, t))) (next + 1)
-    pure $ MkRecBinding next
-
-  updateBoundTerm (MkRecBinding i) (x, c, t) = do
-    TypedRecEnv tyEnv tmEnv next <- get
-    put $ TypedRecEnv tyEnv (S.update i (x, Just (c, t)) tmEnv) next
-
-instance MonadCheck Check where
-  getBoundType (MkRecBinding i) = do
-    rec <- gets (S.lookup i . getTypeEnv)
-    pure $ do
-      (x, val) <- rec
-      (c, t) <- val
-      pure $ (x, c, t)
-
-  addBoundType (x, c, ty) = do
-    TypedRecEnv tyEnv tmEnv next <- get
-    put $ TypedRecEnv
-      (tyEnv S.:|> (x, Just (c, ty))) (tmEnv S.:|> (x, Nothing)) (next + 1)
-    pure $ MkRecBinding next
-
-runCheck :: Check a -> TypedRecEnv -> (Either TypeError a, TypedRecEnv)
-runCheck = runState . runExceptT . getCheck
-
-evalCheck :: Check a -> TypedRecEnv -> Either TypeError a
-evalCheck = evalState . runExceptT . getCheck
-
-execCheck :: Check a -> TypedRecEnv -> TypedRecEnv
-execCheck = execState . runExceptT . getCheck
---}
+  go decls defns ((Define x t):rest :@ c) = if Set.member x defns
+    then throwError $ DuplicateDefine x
+    else if not (Set.member x decls)
+      then throwError $ Undeclared x
+      else do
+        Just (EnvEntry _ (Just ty) _, i) <- gets (lookupSE x c)
+        t' <- check' (t :@ c) ty
+        defineE i (t' :@ c)
+        (rest' :@ c') <- go decls (Set.insert x defns) (rest :@ c)
+        pure ((Define x t'):rest' :@ c')
