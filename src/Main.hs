@@ -5,12 +5,13 @@ module Main where
 
 import Language.MinPS.Syntax
 import Language.MinPS.Environment
+import Language.MinPS.Check
 import Language.MinPS.Eval
 import Language.MinPS.Normalize
 
 import Control.Monad.State
 
-bindings :: Context 'Checked
+bindings :: Context 'Unchecked
 bindings =
   [ Declare "Unit" Type
   , Define "Unit" (Enum [MkLabel "unit"])
@@ -53,11 +54,17 @@ bindings =
 evalNormal :: Term 'Checked -> Term 'Checked
 evalNormal t = evalState (eval t >>= normalize) emptyE
 
+two :: Term 'Unchecked
+two = Let bindings (Var "onePlusOne")
+
 main :: IO ()
 main = do
-  let two = runEval emptyE (Let bindings (Var "onePlusOne"))
-  putStr "eval: "
-  print two
-  let twoN = evalNormal (Let bindings (Var "onePlusOne"))
-  putStr "normalized: "
-  print twoN
+  case runInfer emptyE (emptyC two) of
+    Left e -> print e
+    Right (_, two') -> do
+      let twoV = runEval emptyE two'
+      putStr "eval: "
+      print twoV
+      let twoN = evalNormal two'
+      putStr "normalized: "
+      print twoN
