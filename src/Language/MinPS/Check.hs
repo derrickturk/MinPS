@@ -15,7 +15,6 @@ import Language.MinPS.Syntax
 import Language.MinPS.Value
 import Language.MinPS.Environment
 import Language.MinPS.Eval
-import Language.MinPS.Equals
 
 import Control.Monad.State
 import Control.Monad.Except

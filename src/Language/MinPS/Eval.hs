@@ -7,6 +7,7 @@ module Language.MinPS.Eval (
   , runEval
   , runEval'
   , withConstraint
+  , Equals(..)
 ) where
 
 import Control.Monad.State
@@ -37,7 +38,7 @@ eval' (Var x :@ c)
     --   e.g. variables introduced by binders in pi or sigma types
     --   note that i usually, but not always, == j
     --   (it might get repointed in the course of equality checking)
-        Just (EnvEntry _ _ (Left j)) -> pure $ VNeutral $ NVar j
+        Just (EnvEntry _ _ (Left j)) -> evalNeutral $ NVar j
         Nothing -> error "ICE: undeclared variable passed check"
   | otherwise = error "ICE: unbound variable passed check"
 
@@ -53,7 +54,7 @@ eval' (Rec t :@ c) = pure $ VRec (t :@ c)
 eval' (Fold t :@ c) = pure $ VFold (t :@ c)
 
 eval' (App f x :@ c) = eval' (f :@ c) >>= \case
-  VNeutral n -> pure $ VNeutral $ NApp n (x :@ c)
+  VNeutral n -> evalNeutral $ NApp n (x :@ c)
   VLam v (body :@ c') -> do
     i <- declareE v Nothing
     defineE i (x :@ c)
@@ -61,7 +62,7 @@ eval' (App f x :@ c) = eval' (f :@ c) >>= \case
   _ -> error "ICE: invalid application passed check"
 
 eval' (Split t x y u :@ c) = eval' (t :@ c) >>= \case
-  VNeutral n -> pure $ VNeutral $ NSplit n x y (u :@ c)
+  VNeutral n -> evalNeutral $ NSplit n x y (u :@ c)
   VPair ((t1, t2) :@ c') -> do
     iX <- declareE x Nothing
     defineE iX (t1 :@ c')
@@ -71,19 +72,19 @@ eval' (Split t x y u :@ c) = eval' (t :@ c) >>= \case
   _ -> error "ICE: invalid split passed check"
 
 eval' (Case t cases :@ c) = eval' (t :@ c) >>= \case
-  VNeutral n -> pure $ VNeutral $ NCase n (cases :@ c)
+  VNeutral n -> evalNeutral $ NCase n (cases :@ c)
   VEnumLabel l -> case lookup l cases of
     Just u -> eval' (u :@ c)
     Nothing -> error "ICE: invalid case passed check"
   _ -> error "ICE: invalid case passed check"
 
 eval' (Force t :@ c) = eval' (t :@ c) >>= \case
-  VNeutral n -> pure $ VNeutral $ NForce n
+  VNeutral n -> evalNeutral $ NForce n
   VBox t' -> eval' t'
   _ -> error "ICE: invalid force passed check"
 
 eval' (Unfold t x u :@ c) = eval' (t :@ c) >>= \case
-  VNeutral n -> pure $ VNeutral $ NUnfold n x (u :@ c)
+  VNeutral n -> evalNeutral $ NUnfold n x (u :@ c)
   VFold t' -> do
     i <- declareE x Nothing
     defineE i t'
@@ -124,3 +125,147 @@ withConstraint t l m = gets getConstraints >>= \case
         modify (setConstraints $ Constraints $ (n, l):cs)
         m
       _ -> error "ICE: withConstraint on invalid term!"
+
+-- something something constraints?
+evalNeutral :: MonadState Env m => Neutral -> m Value
+evalNeutral n = do
+  consts <- gets getConstraints
+  case consts of
+    Constraints cs -> go cs
+    Inconsistent ->
+      error "ICE: evalNeutral called with inconsistent constraints"
+  where
+    go [] = pure $ VNeutral n
+    go ((n', l):rest) = do
+      eq <- n .=. n'
+      if eq
+        then pure $ VEnumLabel l
+        else go rest
+
+class Equals a where
+  (.=.) :: MonadState Env m => a -> a -> m Bool
+infix 3 .=.
+
+instance Equals Value where
+  VType .=. VType = pure True
+  VEnum xs .=. VEnum ys = pure $ xs == ys
+  VEnumLabel x .=. VEnumLabel y = pure $ x == y
+  VNeutral x .=. VNeutral y = x .=. y
+
+  VPi x ((tyX, t) :@ c) .=. VPi y ((tyY, u) :@ d) = do
+    eqTy <- join $ (.=.) <$> eval' (tyX :@ c) <*> eval' (tyY :@ d)
+    eqTU <- equalsBound (Just (tyX :@ c)) x (t :@ c) y (u :@ d)
+    pure $ eqTy && eqTU
+
+  VSigma x ((tyX, t) :@ c) .=. VSigma y ((tyY, u) :@ d) = do
+    eqTy <- join $ (.=.) <$> eval' (tyX :@ c) <*> eval' (tyY :@ d)
+    eqTU <- equalsBound (Just (tyX :@ c)) x (t :@ c) y (u :@ d)
+    pure $ eqTy && eqTU
+
+  VLam x t .=. VLam y u = equalsBound Nothing x t y u
+
+  VPair ((t1, t2) :@ c) .=. VPair ((u1, u2) :@ d) = do
+    eq1 <- join $ (.=.) <$> eval' (t1 :@ c) <*> eval' (u1 :@ d)
+    eq2 <- join $ (.=.) <$> eval' (t2 :@ c) <*> eval' (u2 :@ d)
+    pure $ eq1 && eq2
+
+  VLift t .=. VLift u = join $ (.=.) <$> eval' t <*> eval' u
+  VRec t .=. VRec u = join $ (.=.) <$> eval' t <*> eval' u
+  VFold t .=. VFold u = join $ (.=.) <$> eval' t <*> eval' u
+
+  _ .=. _ = pure False
+
+equalsBound :: MonadState Env m
+            => Maybe (Closure (Term 'Checked))
+            -> Ident
+            -> Closure (Term 'Checked)
+            -> Ident
+            -> Closure (Term 'Checked)
+            -> m Bool
+equalsBound ty x (t :@ c) y (u :@ d) = do
+  iX <- declareE x ty
+  vT <- eval' (t :@ (x, iX):c)
+  vU <- eval' (u :@ (y, iX):d)
+  vT .=. vU
+
+equalsBound2 :: MonadState Env m
+            => Maybe (Closure (Term 'Checked))
+            -> Ident
+            -> Maybe (Closure (Term 'Checked))
+            -> Ident
+            -> Closure (Term 'Checked)
+            -> Ident
+            -> Ident
+            -> Closure (Term 'Checked)
+            -> m Bool
+equalsBound2 tyX x tyY y (t :@ c) w z (u :@ d) = do
+  iX <- declareE x tyX
+  iY <- declareE y tyY
+  vT <- eval' (t :@ (y, iY):(x, iX):c)
+  vU <- eval' (u :@ (z, iY):(w, iX):d)
+  vT .=. vU
+
+instance Equals Neutral where
+  -- see the following comment from the original implementation:
+  {- ^ Necessary e.g. to evaluate t12 in the following code:
+    Eq : (a:Type) -> a -> a -> Type;
+    Eq = \ a x y -> (P : a -> Type) -> P x -> P y;
+
+    refl : (a:Type) -> (x:a) -> Eq a x x;
+    refl = \ a x P px -> px;
+
+    A : Type;
+    a : A;
+
+    t12 : Eq (^A) (let y:A=y in [y]) (let z:A=z in [z])
+        = refl (^A)  (let y:A=y in [y]);
+  -}
+
+  NVar i .=. NVar j
+    | i == j = pure True
+    | otherwise = do
+        env <- get
+        case (lookupE i env, lookupE j env) of
+          (Just (EnvEntry _ _ t1), Just (EnvEntry _ _ t2)) -> case (t1, t2) of
+            (Left i', Left j') -> pure $ i' == j'
+            (Left _, _) -> pure False
+            (_, Left _) -> pure False
+            (Right t1', Right t2') -> locally $ do
+              repointE i i
+              repointE j i
+              join $ (.=.) <$> eval' t1' <*> eval' t2'
+          (_, _) -> error "ICE: invalid environment index"
+
+  NApp n t .=. NApp m u = do
+    nEq <- n .=. m
+    tEq <- join $ (.=.) <$> eval' t <*> eval' u
+    pure $ nEq && tEq
+
+  NSplit n x y t .=. NSplit m w z u = do
+    nEq <- n .=. m
+    tEq <- equalsBound2 Nothing x Nothing y t w z u
+    pure $ nEq && tEq
+
+  NCase n (casesN :@ c) .=. NCase m (casesM :@ d) = do
+    nEq <- n .=. m
+    casesEq <- go casesN casesM
+    pure $ nEq && casesEq
+    where
+      go [] [] = pure True
+      go [] _ = pure False
+      go _ [] = pure False
+      go ((lN, t):restN) ((lM, u):restM) = do
+        let lblEq = lN == lM
+        tEq <- join $ (.=.) <$> eval' (t :@ c) <*> eval' (u :@ d)
+        if lblEq && tEq
+          then go restN restM
+          else pure False
+
+  NForce n .=. NForce m = n .=. m
+
+  NUnfold n x t .=. NUnfold m y u = do
+    nEq <- n .=. m
+    tEq <- equalsBound Nothing x t y u
+    pure $ nEq && tEq
+
+  _ .=. _ = pure False
