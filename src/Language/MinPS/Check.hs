@@ -27,6 +27,7 @@ data TypeError =
   | ExpectedGotPair Value
   | ExpectedGotLabel Label Value
   | ExpectedPiType Value
+  | ExpectedSigmaType Value
   | ExpectedLiftedType Value
   | Undeclared Ident
   | Undefined Ident
@@ -47,8 +48,35 @@ check' :: (MonadState Env m, MonadError TypeError m)
        -> Closure (Term 'Checked)
        -> m (Term 'Checked)
 
--- TODO: env-altering cases
+-- as in the original, we "first handle the cases that may potentially
+-- change the environment". I am not 100% sure this split is necessary.
+check' (Let ctxt t :@ c) ty = do
+  (ctxt' :@ c') <- checkContext (ctxt :@ c)
+  t' <- check' (t :@ c') ty
+  pure $ Let ctxt' t'
 
+check' (Split t x y u :@ c) ty
+  | x == y = throwError $ DuplicateDeclare y
+  | otherwise = do
+      (ty', t') <- infer (t :@ c)
+      tyV <- eval' ty'
+      case tyV of
+        VSigma z ((a, b) :@ d) -> do
+          tV <- eval' (t' :@ c)
+          -- this seems insane.
+          i <- declareE x (Just (a :@ d))
+          defineE i (Var x :@ (x, i):c)
+          j <- declareE y (Just (b :@ (z, i):d))
+          let c' = (y, j):(x, i):c
+          case tV of
+            -- I have even less clue here
+            VNeutral (NVar k) -> locally $ do
+              defineE k (Pair (Var x) (Var y) :@ c')
+              check' (u :@ c') ty
+            _ -> check' (u :@ c') ty
+        _ -> throwError $ ExpectedSigmaType tyV
+
+-- the default case
 check' t ty = eval' ty >>= checkValue t
 
 checkValue :: (MonadState Env m, MonadError TypeError m)

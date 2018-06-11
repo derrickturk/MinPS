@@ -14,6 +14,7 @@ module Language.MinPS.Environment (
   , emptyS
   , emptyC
   , emptyE
+  , locally
 ) where
 
 import Language.MinPS.Syntax
@@ -88,6 +89,9 @@ emptyC = (:@ emptyS)
 
 emptyE :: Env
 emptyE = Env S.empty
+
+locally :: MonadState s m => m a -> m a
+locally m = get >>= \s -> m >>= \x -> put s >> pure x
 
 instance Show a => Show (Closure a) where
   show (x :@ []) = show x

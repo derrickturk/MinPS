@@ -139,6 +139,3 @@ instance Equals Neutral where
     pure $ nEq && tEq
 
   _ .=. _ = pure False
-
-locally :: MonadState s m => m a -> m a
-locally m = get >>= \s -> m >>= \x -> put s >> pure x
