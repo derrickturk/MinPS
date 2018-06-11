@@ -30,6 +30,7 @@ import qualified Data.Set as Set
 data TypeError =
     Mismatch Value Value
   | ExpectedPiType Value
+  | ExpectedLiftedType Value
   | Undeclared Ident
   | Undefined Ident
   | DuplicateDeclare Ident
@@ -99,6 +100,22 @@ infer (Enum lbls :@ _) = go Set.empty lbls where
     then throwError $ DuplicateLabel l
     else go (Set.insert l seen) ls
 
+infer (Lift t :@ c) = do
+  t' <- check' (t :@ c) (emptyC Type)
+  pure (emptyC Type, Lift t')
+
+infer (Box t :@ c) = do
+  (ty :@ c', t') <- infer (t :@ c)
+  pure (Lift ty :@ c', Box t')
+
+infer (Rec t :@ c) = do
+  t' <- check' (t :@ c) (emptyC $ Lift Type)
+  pure (emptyC Type, Rec t')
+
+infer (Fold t :@ c) = do
+  (ty :@ c', t') <- infer (t :@ c)
+  pure (Rec (Box ty) :@ c', Fold t')
+
 infer (App f t :@ c) = do
   (fTy, f') <- infer (f :@ c)
   fTyV <- eval' fTy
@@ -109,6 +126,13 @@ infer (App f t :@ c) = do
       defineE i (t' :@ c)
       pure (pyResTy :@ (x, i):d, App f' t')
     _ -> throwError $ ExpectedPiType fTyV
+
+infer (Force t :@ c) = do
+  (ty, t') <- infer (t :@ c)
+  tyV <- eval' ty
+  case tyV of
+    VLift tyBase -> pure (tyBase, Force t')
+    _ -> throwError $ ExpectedLiftedType tyV
 
 -- handle non-inferable cases
 infer t = throwError $ NotInferable t
