@@ -29,10 +29,13 @@ import qualified Data.Set as Set
 
 data TypeError =
     Mismatch Value Value
+  | ExpectedPiType Value
   | Undeclared Ident
   | Undefined Ident
   | DuplicateDeclare Ident
   | DuplicateDefine Ident
+  | DuplicateLabel Label
+  | NotInferable (Closure (Term 'Unchecked))
   deriving Show
 
 check :: (MonadState Env m, MonadError TypeError m)
@@ -77,6 +80,38 @@ infer (Type :@ _) = pure (emptyC Type, Type)
 infer (Var x :@ c) = gets (lookupSE x c) >>= \case
   Just (EnvEntry _ (Just ty) _, _) -> pure (ty, Var x)
   _ -> throwError $ Undeclared x
+
+infer (Pi x ty t :@ c) = do
+  ty' <- check' (ty :@ c) (emptyC Type)
+  i <- declareE x $ Just (ty' :@ c)
+  t' <- check' (t :@ (x, i):c) (emptyC Type)
+  pure (emptyC Type, Pi x ty' t')
+
+infer (Sigma x ty t :@ c) = do
+  ty' <- check' (ty :@ c) (emptyC Type)
+  i <- declareE x $ Just (ty' :@ c)
+  t' <- check' (t :@ (x, i):c) (emptyC Type)
+  pure (emptyC Type, Sigma x ty' t')
+
+infer (Enum lbls :@ _) = go Set.empty lbls where
+  go _ [] = pure (emptyC Type, Enum lbls)
+  go seen (l:ls) = if Set.member l seen
+    then throwError $ DuplicateLabel l
+    else go (Set.insert l seen) ls
+
+infer (App f t :@ c) = do
+  (fTy, f') <- infer (f :@ c)
+  fTyV <- eval' fTy
+  case fTyV of
+    VPi x ((piArgTy, pyResTy) :@ d) -> do
+      t' <- check' (t :@ c) (piArgTy :@ d)
+      i <- declareE x Nothing
+      defineE i (t' :@ c)
+      pure (pyResTy :@ (x, i):d, App f' t')
+    _ -> throwError $ ExpectedPiType fTyV
+
+-- handle non-inferable cases
+infer t = throwError $ NotInferable t
 
 checkContext :: (MonadState Env m, MonadError TypeError m)
              => Closure (Context 'Unchecked)
