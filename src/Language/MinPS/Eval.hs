@@ -6,6 +6,7 @@ module Language.MinPS.Eval (
   , eval'
   , runEval
   , runEval'
+  , withConstraint
 ) where
 
 import Control.Monad.State
@@ -105,3 +106,21 @@ runEval e t = evalState (eval t) e
 
 runEval' :: Env -> Closure (Term 'Checked) -> Value
 runEval' e t = evalState (eval' t) e
+
+withConstraint :: MonadState Env m
+               => Closure (Term 'Checked)
+               -> Label
+               -> m a
+               -> m a
+withConstraint t l m = gets getConstraints >>= \case
+  Inconsistent -> m
+  Constraints cs -> do
+    v <- eval' t
+    case v of
+      VEnumLabel l' -> if l == l'
+        then m
+        else locally $ modify (setConstraints Inconsistent) >> m
+      VNeutral n -> locally $ do
+        modify (setConstraints $ Constraints $ (n, l):cs)
+        m
+      _ -> error "ICE: withConstraint on invalid term!"

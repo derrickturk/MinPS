@@ -6,8 +6,9 @@ module Language.MinPS.Environment (
   , Closure(..)
   , EnvEntry(..)
   , Constraints(..)
-  , Env
+  , Env(..)
   , setEnv
+  , setConstraints
   , lookupSE
   , lookupE
   , declareE
@@ -56,6 +57,9 @@ data Env = Env { getEnv :: S.Seq EnvEntry
 
 setEnv :: S.Seq EnvEntry -> Env -> Env
 setEnv e (Env _ consts) = Env e consts
+
+setConstraints :: Constraints -> Env -> Env
+setConstraints consts (Env e _) = Env e consts
 
 lookupSE :: Ident -> Scope -> Env -> Maybe (EnvEntry, Int)
 lookupSE x s e = lookup x s >>= \i -> lookupE i e >>= \ee -> pure (ee, i)
