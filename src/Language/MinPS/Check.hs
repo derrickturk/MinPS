@@ -24,6 +24,8 @@ import qualified Data.Set as Set
 data TypeError =
     Mismatch Value Value
   | ExpectedGotLambda Value
+  | ExpectedGotPair Value
+  | ExpectedGotLabel Label Value
   | ExpectedPiType Value
   | ExpectedLiftedType Value
   | Undeclared Ident
@@ -60,6 +62,27 @@ checkValue (Lam x t :@ c) (VPi y ((ty, u) :@ d)) = do
   t' <- check' (t :@ (x, i):c) (u :@ (y, i):d)
   pure $ Lam x t'
 checkValue (Lam _ _ :@ _) v = throwError $ ExpectedGotLambda v
+
+checkValue (Pair t u :@ c) (VSigma x ((a, b) :@ d)) = do
+  t' <- check' (t :@ c) (a :@ d)
+  i <- declareE x Nothing
+  defineE i (t' :@ c)
+  u' <- check' (u :@ c) (b :@ (x, i):d)
+  pure $ Pair t' u'
+checkValue (Pair _ _ :@ _) v = throwError $ ExpectedGotPair v
+
+checkValue (EnumLabel l :@ _) (VEnum lbls)
+  | l `elem` lbls = pure $ EnumLabel l
+checkValue (EnumLabel l :@ _) v = throwError $ ExpectedGotLabel l v
+
+-- these rules are copied from the original and I do not 100%
+--   understand their absence of other cases
+
+checkValue (Box t :@ c) (VLift ty) = check' (t :@ c) ty
+
+checkValue (Fold t :@ c) (VRec (ty :@ d)) = do
+  forceTyV <- eval' (Force ty :@ d)
+  checkValue (t :@ c) forceTyV
 
 -- ... the rest can
 checkValue t v = do 
