@@ -22,8 +22,9 @@ executable MinPS
                      , containers >= 0.5 && < 0.6
                      , mtl >= 2.2 && < 2.3
   other-modules:       Language.MinPS.Syntax
-                     , Language.MinPS.Value
+                     , Language.MinPS.Closure
                      , Language.MinPS.Environment
+                     , Language.MinPS.Value
                      , Language.MinPS.Eval
                      , Language.MinPS.Normalize
                      , Language.MinPS.Equals

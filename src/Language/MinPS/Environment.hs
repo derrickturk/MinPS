@@ -18,17 +18,10 @@ module Language.MinPS.Environment (
 ) where
 
 import Language.MinPS.Syntax
+import Language.MinPS.Closure
 
 import Control.Monad.State
-import Data.List (intercalate)
 import qualified Data.Sequence as S
-import qualified Data.Text as T
-
-type Scope = [(Ident, Int)]
-
-data Closure :: * -> * where
-  (:@) :: a -> Scope -> Closure a
-infix 4 :@
 
 -- ok, sooooooooo
 -- we've got to be able to define values (and thus declare new slots)
@@ -92,8 +85,3 @@ emptyE = Env S.empty
 
 locally :: MonadState s m => m a -> m a
 locally m = get >>= \s -> m >>= \x -> put s >> pure x
-
-instance Show a => Show (Closure a) where
-  show (x :@ []) = show x
-  show (x :@ c) = show x ++ "[with " ++ intercalate ", " binds ++ "]" where
-    binds = fmap (\(var, i) -> T.unpack (getIdent var) ++ "@" ++ show i) c

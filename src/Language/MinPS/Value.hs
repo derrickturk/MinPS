@@ -6,7 +6,7 @@ module Language.MinPS.Value (
 ) where
 
 import Language.MinPS.Syntax
-import Language.MinPS.Environment
+import Language.MinPS.Closure
 
 data Value =
     VType
