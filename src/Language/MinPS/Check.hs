@@ -27,6 +27,7 @@ data TypeError =
   | ExpectedGotLabel Label Value
   | ExpectedPiType Value
   | ExpectedSigmaType Value
+  | ExpectedEnumType Value
   | ExpectedLiftedType Value
   | ExpectedRecType Value
   | Undeclared Ident
@@ -34,6 +35,7 @@ data TypeError =
   | DuplicateDeclare Ident
   | DuplicateDefine Ident
   | DuplicateLabel Label
+  | LabelsMismatch [Label] [Label]
   | NotInferable (Closure (Term 'Unchecked))
   deriving Show
 
@@ -76,7 +78,19 @@ check' (Split t x y u :@ c) ty
             _ -> check' (u :@ c') ty
         _ -> throwError $ ExpectedSigmaType tyV
 
-check' (Case t cases :@ c) ty = error "TODO: constraints"
+check' (Case t cases :@ c) ty = do
+  (ty', t') <- infer (t :@ c)
+  tyV <- eval' ty'
+  case tyV of
+    VEnum lbls -> let lbls' = fmap fst cases in
+      if Set.fromList lbls /= Set.fromList lbls'
+        then throwError $ LabelsMismatch lbls' lbls
+        else do
+          cases' <- mapM checkCase cases
+          pure $ Case t' (zip lbls' cases')
+          where
+            checkCase (l, u) = withConstraint (t' :@ c) l (check' (u :@ c) ty)
+    _ -> throwError $ ExpectedEnumType tyV
 
 check' (Force t :@ c) (ty :@ d) = check' (t :@ c) (Lift ty :@ d)
 
