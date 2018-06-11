@@ -29,6 +29,7 @@ data TypeError =
   | ExpectedPiType Value
   | ExpectedSigmaType Value
   | ExpectedLiftedType Value
+  | ExpectedRecType Value
   | Undeclared Ident
   | Undefined Ident
   | DuplicateDeclare Ident
@@ -75,6 +76,25 @@ check' (Split t x y u :@ c) ty
               check' (u :@ c') ty
             _ -> check' (u :@ c') ty
         _ -> throwError $ ExpectedSigmaType tyV
+
+check' (Case t cases :@ c) ty = error "TODO: constraints"
+
+check' (Force t :@ c) (ty :@ d) = check' (t :@ c) (Lift ty :@ d)
+
+check' (Unfold t x u :@ c) ty = do
+  (ty', t') <- infer (t :@ c)
+  tyV <- eval' ty'
+  case tyV of
+    VRec (a :@ d) -> do
+      tV <- eval' (t' :@ c)
+      i <- declareE x (Just (Force a :@ d))
+      let c' = (x, i):c
+      case tV of
+        VNeutral (NVar k) -> locally $ do
+          defineE k (Fold (Var x) :@ c')
+          check' (u :@ c') ty
+        _ -> check' (u :@ c') ty
+    _ -> throwError $ ExpectedRecType tyV
 
 -- the default case
 check' t ty = eval' ty >>= checkValue t
