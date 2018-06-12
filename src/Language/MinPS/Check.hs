@@ -20,6 +20,8 @@ import Control.Monad.State
 import Control.Monad.Except
 import qualified Data.Set as Set
 
+import Debug.Trace
+
 data TypeError =
     Mismatch Value Value
   | ExpectedGotLambda Value
@@ -110,7 +112,9 @@ check' (Unfold t x u :@ c) ty = do
     _ -> throwError $ ExpectedRecType tyV
 
 -- the default case
-check' t ty = eval' ty >>= checkValue t
+check' t ty = do
+  traceM $ "checking <" ++ show t ++ "> as [[" ++ show ty ++ "]]"
+  eval' ty >>= checkValue t
 
 checkValue :: (MonadState Env m, MonadError TypeError m)
            => Closure (Term 'Unchecked)
@@ -139,11 +143,15 @@ checkValue (EnumLabel l :@ _) v = throwError $ ExpectedGotLabel l v
 -- these rules are copied from the original and I do not 100%
 --   understand their absence of other cases
 
-checkValue (Box t :@ c) (VLift ty) = check' (t :@ c) ty
+checkValue (Box t :@ c) (VLift ty) = do
+  t' <- check' (t :@ c) ty
+  pure $ Box t'
 
 checkValue (Fold t :@ c) (VRec (ty :@ d)) = do
+  traceM $ "checking <" ++ show t ++ "> as Rec <" ++ show ty ++ ">"
   forceTyV <- eval' (Force ty :@ d)
-  checkValue (t :@ c) forceTyV
+  t' <- checkValue (t :@ c) forceTyV
+  pure $ Fold t'
 
 -- ... the rest can
 checkValue t v = do 
