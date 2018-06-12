@@ -19,7 +19,7 @@ bindings =
   , Declare "Nat" Type
   , Define "Nat" (Sigma "l" (Enum [MkLabel "z", MkLabel "s"])
                             (Case (Var "l") [ (MkLabel "z", Var "Unit")
-                                            , (MkLabel "s", Rec (Var "Nat"))
+                                            , (MkLabel "s", Rec (Box (Var "Nat")))
                                             ]))
 
   , Declare "zero" (Var "Nat")

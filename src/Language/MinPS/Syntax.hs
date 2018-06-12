@@ -51,6 +51,10 @@ data Term :: TermState -> * where
 
 deriving instance Show (Stmt 'Checked) 
 deriving instance Show (Stmt 'Unchecked) 
+deriving instance Eq (Stmt 'Checked)
+deriving instance Eq (Stmt 'Unchecked)
 
 deriving instance Show (Term 'Checked)
 deriving instance Show (Term 'Unchecked)
+deriving instance Eq (Term 'Checked)
+deriving instance Eq (Term 'Unchecked)

@@ -11,6 +11,7 @@ module Language.MinPS.Eval (
 ) where
 
 import Control.Monad.State
+import Data.List (sortBy)
 
 import Language.MinPS.Syntax
 import Language.MinPS.Environment
@@ -59,7 +60,7 @@ eval' (App f x :@ c) = eval' (f :@ c) >>= \case
     i <- declareE v Nothing
     defineE i (x :@ c)
     eval' (body :@ (v, i):c')
-  _ -> error "ICE: invalid application passed check"
+  v -> errorV v "ICE: invalid application passed check"
 
 eval' (Split t x y u :@ c) = eval' (t :@ c) >>= \case
   VNeutral n -> evalNeutral $ NSplit n x y (u :@ c)
@@ -69,19 +70,19 @@ eval' (Split t x y u :@ c) = eval' (t :@ c) >>= \case
     iY <- declareE y Nothing
     defineE iY (t2 :@ c')
     eval' (u :@ (y, iY):(x, iX):c)
-  _ -> error "ICE: invalid split passed check"
+  v -> errorV v "ICE: invalid split passed check"
 
 eval' (Case t cases :@ c) = eval' (t :@ c) >>= \case
   VNeutral n -> evalNeutral $ NCase n (cases :@ c)
   VEnumLabel l -> case lookup l cases of
     Just u -> eval' (u :@ c)
     Nothing -> error "ICE: invalid case passed check"
-  _ -> error "ICE: invalid case passed check"
+  v -> errorV v "ICE: invalid case passed check"
 
 eval' (Force t :@ c) = eval' (t :@ c) >>= \case
   VNeutral n -> evalNeutral $ NForce n
   VBox t' -> eval' t'
-  _ -> error "ICE: invalid force passed check"
+  v -> errorV v "ICE: invalid force passed check"
 
 eval' (Unfold t x u :@ c) = eval' (t :@ c) >>= \case
   VNeutral n -> evalNeutral $ NUnfold n x (u :@ c)
@@ -89,7 +90,10 @@ eval' (Unfold t x u :@ c) = eval' (t :@ c) >>= \case
     i <- declareE x Nothing
     defineE i t'
     eval' (u :@ (x, i):c)
-  _ -> error "ICE: invalid unfold passed check"
+  v -> errorV v "ICE: invalid unfold passed check"
+
+errorV :: Value -> String -> a
+errorV v s = error $ s ++ ": " ++ show v
 
 evalContext :: MonadState Env m => Context 'Checked -> Scope -> m Scope
 evalContext [] c = pure c
@@ -147,11 +151,6 @@ class Equals a where
 infix 3 .=.
 
 instance Equals Value where
-  VType .=. VType = pure True
-  VEnum xs .=. VEnum ys = pure $ xs == ys
-  VEnumLabel x .=. VEnumLabel y = pure $ x == y
-  VNeutral x .=. VNeutral y = x .=. y
-
   VPi x ((tyX, t) :@ c) .=. VPi y ((tyY, u) :@ d) = do
     eqTy <- join $ (.=.) <$> eval' (tyX :@ c) <*> eval' (tyY :@ d)
     eqTU <- equalsBound (Just (tyX :@ c)) x (t :@ c) y (u :@ d)
@@ -169,11 +168,16 @@ instance Equals Value where
     eq2 <- join $ (.=.) <$> eval' (t2 :@ c) <*> eval' (u2 :@ d)
     pure $ eq1 && eq2
 
+  VBox t .=. VBox u = equalsBoxed t u
+
   VLift t .=. VLift u = join $ (.=.) <$> eval' t <*> eval' u
   VRec t .=. VRec u = join $ (.=.) <$> eval' t <*> eval' u
   VFold t .=. VFold u = join $ (.=.) <$> eval' t <*> eval' u
 
-  _ .=. _ = pure False
+  VNeutral x .=. VNeutral y = x .=. y
+
+  -- handle the "boring" cases
+  x .=. y = pure $ x == y
 
 equalsBound :: MonadState Env m
             => Maybe (Closure (Term 'Checked))
@@ -204,6 +208,85 @@ equalsBound2 tyX x tyY y (t :@ c) w z (u :@ d) = do
   vT <- eval' (t :@ (y, iY):(x, iX):c)
   vU <- eval' (u :@ (z, iY):(w, iX):d)
   vT .=. vU
+
+-- alpha equality for things inside boxes
+equalsBoxed :: MonadState Env m
+            => Closure (Term 'Checked)
+            -> Closure (Term 'Checked)
+            -> m Bool
+equalsBoxed t u
+  | t == u = pure True
+
+-- move Lets to the left and evaluate
+equalsBoxed (Let ctxt t :@ c) u = do
+  c' <- evalContext ctxt c
+  equalsBoxed (t :@ c') u
+
+equalsBoxed t u@(Let _ _ :@ _) = equalsBoxed u t
+
+equalsBoxed (Var x :@ c) (Var y :@ d) =
+  case (lookup x c, lookup y d) of
+    -- invoke crazy repoint logic
+    (Just i, Just j) -> NVar i .=. NVar j
+    _ -> error "ICE: equalsBoxed walked into undefined variable"
+
+equalsBoxed (Pi x t u :@ c) (Pi y v w :@ d) = do
+  eqArg <- equalsBoxed (t :@ c) (v :@ d)
+  i <- declareE x Nothing
+  eqRes <- equalsBoxed (u :@ (x, i):c) (w :@ (y, i):d)
+  pure $ eqArg && eqRes
+
+equalsBoxed (Sigma x t u :@ c) (Sigma y v w :@ d) = do
+  eqArg <- equalsBoxed (t :@ c) (v :@ d)
+  i <- declareE x Nothing
+  eqRes <- equalsBoxed (u :@ (x, i):c) (w :@ (y, i):d)
+  pure $ eqArg && eqRes
+
+equalsBoxed (Lam x t :@ c) (Lam y u :@ d) = do
+  i <- declareE x Nothing
+  equalsBoxed (t :@ (x, i):c) (u :@ (y, i):d)
+
+equalsBoxed (App t u :@ c) (App v w :@ d) =
+  (&&) <$> (equalsBoxed (t :@ c) (v :@ d))
+       <*> (equalsBoxed (u :@ c) (w :@ d))
+
+equalsBoxed (Pair t u :@ c) (Pair v w :@ d) =
+  (&&) <$> (equalsBoxed (t :@ c) (v :@ d))
+       <*> (equalsBoxed (u :@ c) (w :@ d))
+
+equalsBoxed (Split t x y u :@ c) (Split v a b w :@ d) = do
+  eqArg <- equalsBoxed (t :@ c) (v :@ d)
+  i <- declareE x Nothing
+  j <- declareE y Nothing
+  eqRes <- equalsBoxed (u :@ (y, j):(x, i):c) (w :@ (b, j):(a, i):d)
+  pure $ eqArg && eqRes
+
+equalsBoxed (Case t cs :@ c) (Case u ds :@ d) = do
+  eqArg <- equalsBoxed (t :@ c) (u :@ d)
+  eqCases <- zipWithM eqCase (byLabel cs) (byLabel ds)
+  pure $ eqArg && and eqCases
+  where
+    eqCase (l, w) (m, v)
+      | l /= m = pure False
+      | otherwise = equalsBoxed (w :@ c) (v :@ d)
+    byLabel = sortBy (\(l, _) (m, _) -> compare l m)
+
+equalsBoxed (Lift t :@ c) (Lift u :@ d) = equalsBoxed (t :@ c) (u :@ d)
+equalsBoxed (Box t :@ c) (Box u :@ d) = equalsBoxed (t :@ c) (u :@ d)
+equalsBoxed (Force t :@ c) (Force u :@ d) = equalsBoxed (t :@ c) (u :@ d)
+equalsBoxed (Rec t :@ c) (Rec u :@ d) = equalsBoxed (t :@ c) (u :@ d)
+equalsBoxed (Fold t :@ c) (Fold u :@ d) = equalsBoxed (t :@ c) (u :@ d)
+
+equalsBoxed (Unfold t x u :@ c) (Unfold v y w :@ d) = do
+  eqArg <- equalsBoxed (t :@ c) (v :@ d)
+  i <- declareE x Nothing
+  eqRes <- equalsBoxed (u :@ (x, i):c) (w :@ (y, i):d)
+  pure $ eqArg && eqRes
+
+-- handle Type, EnumLabel, Enum
+equalsBoxed (t :@ _) (u :@ _)
+  | t == u = pure True
+  | otherwise = pure False
 
 instance Equals Neutral where
   -- see the following comment from the original implementation:

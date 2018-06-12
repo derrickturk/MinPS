@@ -1,4 +1,4 @@
-{-# LANGUAGE GADTs, KindSignatures #-}
+{-# LANGUAGE GADTs, KindSignatures, StandaloneDeriving #-}
 
 module Language.MinPS.Closure (
     Scope
@@ -20,3 +20,5 @@ instance Show a => Show (Closure a) where
   show (x :@ []) = show x
   show (x :@ c) = show x ++ "[with " ++ intercalate ", " binds ++ "]" where
     binds = fmap (\(var, i) -> T.unpack (getIdent var) ++ "@" ++ show i) c
+
+deriving instance Eq a => Eq (Closure a)
