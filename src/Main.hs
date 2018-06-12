@@ -55,16 +55,44 @@ bindings =
 
   , Declare "onePlusOne" (Var "Nat")
   , Define "onePlusOne" (App (App (Var "add") (Var "one")) (Var "one"))
+
+  , Declare "Void" Type
+  , Define "Void" (Enum [])
+
+  , Declare "Fin" (Pi "n" (Var "Nat") Type)
+  , Define "Fin" (Lam "n"
+                   (Split (Var "n") "ln" "n'"
+                          (Force (Case (Var "ln")
+                                       [ ("z", Box (Var "Void"))
+                                       , ("s", Box (Sigma "l"
+                                                     (Enum ["z", "s"])
+                                                     (Case (Var "l")
+                                                           [ ("z", Var "Unit")
+                                                           , ("s", App (Var "Fin") (Unfold (Var "n'") "n'" (Var "n'")))
+                                                           ])))
+                                       ]))))
+
+  , Declare "fz" (Pi "n" (Var "Nat")
+                         (App (Var "Fin") (App (Var "succ") (Var "n"))))
+  , Define "fz" (Lam "n" (Pair (EnumLabel "z") (EnumLabel "unit")))
+
+  , Declare "fs" (Pi "n" (Var "Nat")
+                         (Pi "i" (App (Var "Fin") (Var "n"))
+                                 (App (Var "Fin") (App (Var "succ") (Var "n")))))
+  , Define "fs" (Lam "n" (Lam "i" (Pair (EnumLabel "s") (Var "i"))))
   ]
 
 evalNormal :: Term 'Checked -> Term 'Checked
 evalNormal t = evalState (eval t >>= normalize) emptyE
 
-two :: Term 'Unchecked
-two = Let bindings (Var "onePlusOne")
 
-nat :: Term 'Unchecked
-nat = Let bindings (Var "Nat")
+terms :: [Term 'Unchecked]
+terms = [ Let bindings (Var "onePlusOne")
+        , Let bindings (Var "Nat")
+        , Let bindings (App (Var "fz") (Var "onePlusOne"))
+        , Let bindings (App (App (Var "fs") (Var "onePlusOne"))
+                            (App (Var "fz") (Var "one")))
+        ]
 
 doIt :: Term 'Unchecked -> IO ()
 doIt t = do
@@ -79,6 +107,4 @@ doIt t = do
       print twoN
 
 main :: IO ()
-main = do
-  doIt two
-  doIt nat
+main = mapM_ doIt terms
