@@ -47,6 +47,12 @@ bindings =
                                                    (Var "n"))))
                                     ])))))
 
+  , Declare "zeroPlusZero" (Var "Nat")
+  , Define "zeroPlusZero" (App (App (Var "add") (Var "zero")) (Var "zero"))
+
+  , Declare "onePlusZero" (Var "Nat")
+  , Define "onePlusZero" (App (App (Var "add") (Var "one")) (Var "zero"))
+
   , Declare "onePlusOne" (Var "Nat")
   , Define "onePlusOne" (App (App (Var "add") (Var "one")) (Var "one"))
   ]

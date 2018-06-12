@@ -17,8 +17,6 @@ import Language.MinPS.Syntax
 import Language.MinPS.Environment
 import Language.MinPS.Value
 
-import Debug.Trace
-
 eval :: MonadState Env m => Term 'Checked -> m Value
 eval = eval' . emptyC
 

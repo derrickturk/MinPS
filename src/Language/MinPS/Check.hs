@@ -102,11 +102,12 @@ check' (Unfold t x u :@ c) ty = do
       tV <- eval' (t' :@ c)
       i <- declareE x (Just (Force a :@ d))
       let c' = (x, i):c
-      case tV of
+      u' <- case tV of
         VNeutral (NVar k) -> locally $ do
           defineE k (Fold (Var x) :@ c')
           check' (u :@ c') ty
         _ -> check' (u :@ c') ty
+      pure $ Unfold t' x u'
     _ -> throwError $ ExpectedRecType tyV
 
 -- the default case
