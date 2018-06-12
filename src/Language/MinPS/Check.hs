@@ -20,8 +20,6 @@ import Control.Monad.State
 import Control.Monad.Except
 import qualified Data.Set as Set
 
-import Debug.Trace
-
 data TypeError =
     Mismatch Value Value
   | ExpectedGotLambda Value
@@ -67,17 +65,15 @@ check' (Split t x y u :@ c) ty
       case tyV of
         VSigma z ((a, b) :@ d) -> do
           tV <- eval' (t' :@ c)
-          -- this seems insane.
           i <- declareE x (Just (a :@ d))
-          defineE i (Var x :@ (x, i):c)
           j <- declareE y (Just (b :@ (z, i):d))
           let c' = (y, j):(x, i):c
-          case tV of
-            -- I have even less clue here
+          u' <- case tV of
             VNeutral (NVar k) -> locally $ do
               defineE k (Pair (Var x) (Var y) :@ c')
               check' (u :@ c') ty
             _ -> check' (u :@ c') ty
+          pure $ Split t' x y u'
         _ -> throwError $ ExpectedSigmaType tyV
 
 check' (Case t cases :@ c) ty = do
@@ -94,7 +90,9 @@ check' (Case t cases :@ c) ty = do
             checkCase (l, u) = withConstraint (t' :@ c) l (check' (u :@ c) ty)
     _ -> throwError $ ExpectedEnumType tyV
 
-check' (Force t :@ c) (ty :@ d) = check' (t :@ c) (Lift ty :@ d)
+check' (Force t :@ c) (ty :@ d) = do
+  t' <- check' (t :@ c) (Lift ty :@ d)
+  pure $ Force t'
 
 check' (Unfold t x u :@ c) ty = do
   (ty', t') <- infer (t :@ c)
@@ -113,7 +111,6 @@ check' (Unfold t x u :@ c) ty = do
 
 -- the default case
 check' t ty = do
-  traceM $ "checking <" ++ show t ++ "> as [[" ++ show ty ++ "]]"
   eval' ty >>= checkValue t
 
 checkValue :: (MonadState Env m, MonadError TypeError m)
@@ -148,7 +145,6 @@ checkValue (Box t :@ c) (VLift ty) = do
   pure $ Box t'
 
 checkValue (Fold t :@ c) (VRec (ty :@ d)) = do
-  traceM $ "checking <" ++ show t ++ "> as Rec <" ++ show ty ++ ">"
   forceTyV <- eval' (Force ty :@ d)
   t' <- checkValue (t :@ c) forceTyV
   pure $ Fold t'
