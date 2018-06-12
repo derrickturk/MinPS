@@ -63,9 +63,12 @@ evalNormal t = evalState (eval t >>= normalize) emptyE
 two :: Term 'Unchecked
 two = Let bindings (Var "onePlusOne")
 
-main :: IO ()
-main = do
-  case runInfer emptyE (emptyC two) of
+nat :: Term 'Unchecked
+nat = Let bindings (Var "Nat")
+
+doIt :: Term 'Unchecked -> IO ()
+doIt t = do
+  case runInfer emptyE (emptyC t) of
     Left e -> print e
     Right (_, two') -> do
       let twoV = runEval emptyE two'
@@ -74,3 +77,8 @@ main = do
       let twoN = evalNormal two'
       putStr "normalized: "
       print twoN
+
+main :: IO ()
+main = do
+  doIt two
+  doIt nat

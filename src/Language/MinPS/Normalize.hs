@@ -42,10 +42,11 @@ instance Normalize Value where
 
   normalize (VEnumLabel lbl) = pure $ EnumLabel lbl
 
-  -- TODO: check recursion carefully!
   normalize (VLift (t :@ c)) = Lift <$> (eval' (t :@ c) >>= normalize)
 
-  normalize (VBox (t :@ c)) = Box <$> (eval' (t :@ c) >>= normalize)
+  -- TODO?: expand the closure (just don't eval the term!)
+  -- y'know, I'm not sure their "qq" function is semantically necessary
+  normalize (VBox (t :@ _)) = pure $ Box t
 
   normalize (VRec (t :@ c)) = Rec <$> (eval' (t :@ c) >>= normalize)
 
