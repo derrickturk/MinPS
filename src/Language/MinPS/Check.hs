@@ -5,6 +5,7 @@ module Language.MinPS.Check (
     TypeError
   , check
   , check'
+  , checkStmt
   , infer
   , runCheck
   , runCheck'
@@ -244,6 +245,27 @@ runInfer :: Env
          -> Either TypeError (Closure (Term 'Checked), Term 'Checked)
 runInfer e t = evalState (runExceptT $ infer t) e
 
+checkStmt :: (MonadState Env m, MonadError TypeError m)
+          => Closure (Stmt 'Unchecked)
+          -> Set.Set Ident
+          -> Set.Set Ident
+          -> m (Closure (Stmt 'Checked), Set.Set Ident, Set.Set Ident)
+checkStmt (Declare x ty :@ c) decls defns = if Set.member x decls
+  then throwError $ DuplicateDeclare x
+  else do
+    ty' <- check' (ty :@ c) (emptyC Type)
+    i <- declareE x (Just (ty' :@ c))
+    pure (Declare x ty' :@ (x, i):c, Set.insert x decls, defns)
+checkStmt (Define x t :@ c) decls defns = if Set.member x defns
+  then throwError $ DuplicateDefine x
+  else if not (Set.member x decls)
+    then throwError $ Undeclared x
+    else do
+      Just (EnvEntry _ (Just ty) _, i) <- gets (lookupSE x c)
+      t' <- check' (t :@ c) ty
+      defineE i (t' :@ c)
+      pure (Define x t' :@ c, decls, Set.insert x defns)
+
 checkContext :: (MonadState Env m, MonadError TypeError m)
              => Closure (Context 'Unchecked)
              -> m (Closure (Context 'Checked))
@@ -259,21 +281,7 @@ checkContext = go Set.empty Set.empty where
       Nothing -> pure ([] :@ c)
       Just x -> throwError $ Undefined x
 
-  go decls defns ((Declare x ty):rest :@ c) = if Set.member x decls
-    then throwError $ DuplicateDeclare x
-    else do
-      ty' <- check' (ty :@ c) (emptyC Type)
-      i <- declareE x (Just (ty' :@ c))
-      (rest' :@ c') <- go (Set.insert x decls) defns (rest :@ (x, i):c)
-      pure ((Declare x ty'):rest' :@ c')
-
-  go decls defns ((Define x t):rest :@ c) = if Set.member x defns
-    then throwError $ DuplicateDefine x
-    else if not (Set.member x decls)
-      then throwError $ Undeclared x
-      else do
-        Just (EnvEntry _ (Just ty) _, i) <- gets (lookupSE x c)
-        t' <- check' (t :@ c) ty
-        defineE i (t' :@ c)
-        (rest' :@ c') <- go decls (Set.insert x defns) (rest :@ c)
-        pure ((Define x t'):rest' :@ c')
+  go decls defns (stmt:rest :@ c) = do
+    (stmt' :@ c', decls', defns') <- checkStmt (stmt :@ c) decls defns
+    (rest' :@ c'') <- go decls' defns' (rest :@ c')
+    pure (stmt':rest' :@ c'')

@@ -4,6 +4,7 @@
 module Language.MinPS.Eval (
     eval
   , eval'
+  , evalStmt
   , runEval
   , runEval'
   , withConstraint
@@ -95,16 +96,21 @@ eval' (Unfold t x u :@ c) = eval' (t :@ c) >>= \case
 errorV :: Value -> String -> a
 errorV v s = error $ s ++ ": " ++ show v
 
+evalStmt :: MonadState Env m => Stmt 'Checked -> Scope -> m Scope
+evalStmt (Declare x ty) c = do
+  i <- declareE x $ Just (ty :@ c)
+  pure ((x, i):c)
+evalStmt (Define x t) c = case lookup x c of
+  Just i -> do
+    defineE i (t :@ c)
+    pure c
+  _ -> error "ICE: define-without-declare passed check"
+
 evalContext :: MonadState Env m => Context 'Checked -> Scope -> m Scope
 evalContext [] c = pure c
-evalContext ((Declare x ty):rest) c = do
-  i <- declareE x $ Just (ty :@ c)
-  evalContext rest ((x, i):c)
-evalContext ((Define x t):rest) c = case lookup x c of
-    Just i -> do
-      defineE i (t :@ c)
-      evalContext rest c
-    _ -> error "ICE: define-without-declare passed check"
+evalContext (stmt:rest) c = do
+  c' <- evalStmt stmt c
+  evalContext rest c'
 
 runEval :: Env -> Term 'Checked -> Value
 runEval e t = evalState (eval t) e
