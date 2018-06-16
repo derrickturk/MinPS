@@ -36,6 +36,9 @@ keywords = [ "let"
            , "unfold"
            , "as"
            , "Rec"
+           , "Type"
+           , "case"
+           , "of"
            ]
 
 ident :: Parser Ident
@@ -50,7 +53,13 @@ ident = lexeme $ do
 label :: Parser Label
 label = lexeme $ (MkLabel . getIdent) <$> ident
 
+labelTerm :: Parser Label
 labelTerm = char '\'' *> label
+
+-- TODO: the original allows syntax like (a b c d : Type)
+-- but I don't think I've ever seen them use it, and I don't care for it
+binder :: Parser (Ident, Term 'Unchecked)
+binder = enclosed "(" ")" $ (,) <$> ident <*> (lexeme ":" *> term)
 
 context :: Parser (Context 'Unchecked)
 context = pure []
@@ -69,4 +78,8 @@ term =  try (Let <$> ("let" *> space1 *> context) <*> ("in" *> space1 *> term))
     <|> try (Split <$> ("split" *> space1 *> term) <*>
                        (lexeme "with" *> lexeme "(" *> ident) <*>
                        (lexeme "," *> ident <* lexeme ")") <*>
-                       term)
+                       (lexeme "->" *> term))
+    <|> try (Unfold <$> ("unfold" *> space1 *> term) <*>
+                        ("as" *> space1 *> ident) <*>
+                        (lexeme "->" *> term))
+    <|> try (uncurry Pi <$> binder <*> (lexeme "->" *> term)) 
