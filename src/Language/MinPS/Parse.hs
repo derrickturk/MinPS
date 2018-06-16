@@ -89,3 +89,17 @@ term =  try (Let <$> ("let" *> space1 *> context) <*> ("in" *> space1 *> term))
                         ("as" *> space1 *> ident) <*>
                         (lexeme "->" *> term))
     <|> try (uncurry Pi <$> binder <*> (lexeme "->" *> term)) 
+
+branch :: Parser (Label, Term 'Unchecked)
+branch = (,) <$> label <*> (lexeme "->" *> term)
+
+atom :: Parser (Term 'Unchecked)
+atom =  try $ enclosed "(" ")" term
+    <|> try (uncurry Pair <$>
+          enclosed "(" ")" ((,) <$> term <*> (lexeme "," *> term)))
+    <|> try (Enum <$> enclosed "{" "}" (some label))
+    <|> try (EnumLabel <$> labelTerm)
+    <|> try (Case <$> ("case" *> space1 *> term)
+                  <*> ("of" *> enclosed "{" "}" (branch `sepBy` lexeme "|")))
+    <|> try (Box <$> enclosed "[" "]" term)
+    <|> Var <$> ident
