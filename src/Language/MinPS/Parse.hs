@@ -6,6 +6,14 @@ module Language.MinPS.Parse (
   , stmt
   , context
   , term
+  , parse
+  , parseMaybe
+  , parseTest
+  , parseTest'
+  , runParser
+  , runParser'
+  , parseErrorPretty
+  , only
 ) where
 
 import qualified Data.Text as T
@@ -120,3 +128,6 @@ term =  try (Let <$> ("let" *> space1 *> context) <*> ("in" *> space1 *> term))
                         (lexeme "->" *> term))
     <|> try (uncurry Pi <$> binder <*> (lexeme "->" *> term)) 
     <|> (foldl $ Pi "_") <$> productTerm <*> many term
+
+only :: Parser a -> Parser a
+only = (<* lexeme eof)
