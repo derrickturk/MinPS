@@ -34,6 +34,7 @@ keywords = [ "let"
            , "in"
            , "split"
            , "with"
+           , "fold"
            , "unfold"
            , "as"
            , "Rec"
@@ -70,26 +71,6 @@ stmt =  try (Declare <$> ident <*> (lexeme ":" *> term <* lexeme ";"))
 context :: Parser (Context 'Unchecked)
 context = some stmt
 
-lambda :: Parser (Term 'Unchecked)
-lambda = do
-  lexeme $ char '\\'
-  idents <- some ident
-  lexeme $ string "->"
-  body <- term
-  pure $ foldr Lam body idents
-
-term :: Parser (Term 'Unchecked)
-term =  try (Let <$> ("let" *> space1 *> context) <*> ("in" *> space1 *> term))
-    <|> try lambda
-    <|> try (Split <$> ("split" *> space1 *> term) <*>
-                       (lexeme "with" *> lexeme "(" *> ident) <*>
-                       (lexeme "," *> ident <* lexeme ")") <*>
-                       (lexeme "->" *> term))
-    <|> try (Unfold <$> ("unfold" *> space1 *> term) <*>
-                        ("as" *> space1 *> ident) <*>
-                        (lexeme "->" *> term))
-    <|> try (uncurry Pi <$> binder <*> (lexeme "->" *> term)) 
-
 branch :: Parser (Label, Term 'Unchecked)
 branch = (,) <$> label <*> (lexeme "->" *> term)
 
@@ -103,3 +84,39 @@ atom =  try $ enclosed "(" ")" term
                   <*> ("of" *> enclosed "{" "}" (branch `sepBy` lexeme "|")))
     <|> try (Box <$> enclosed "[" "]" term)
     <|> Var <$> ident
+
+prefix :: Parser (Term 'Unchecked -> Term 'Unchecked)
+prefix =  try (Rec <$ lexeme "Rec")
+      <|> try (Fold <$ lexeme "fold")
+      <|> try (Lift <$ lexeme "^")
+      <|> try (Force <$ lexeme "!")
+      -- I am deliberately excluding prefix box operator Unicode sharp-sign
+      <|> (\t -> Unfold t "x" (Var "x")) <$ lexeme "unfold"
+
+appTerm :: Parser (Term 'Unchecked)
+appTerm = foldl App <$> (atom <|> prefix <*> atom) <*> many atom
+
+lambda :: Parser (Term 'Unchecked)
+lambda = do
+  lexeme $ char '\\'
+  idents <- some ident
+  lexeme $ string "->"
+  body <- term
+  pure $ foldr Lam body idents
+
+productTerm :: Parser (Term 'Unchecked)
+productTerm =  try (uncurry Sigma <$> binder <*> (lexeme "*" *> term))
+           <|> (foldl $ Sigma "_") <$> appTerm <*> many productTerm
+
+term :: Parser (Term 'Unchecked)
+term =  try (Let <$> ("let" *> space1 *> context) <*> ("in" *> space1 *> term))
+    <|> try lambda
+    <|> try (Split <$> ("split" *> space1 *> term) <*>
+                       (lexeme "with" *> lexeme "(" *> ident) <*>
+                       (lexeme "," *> ident <* lexeme ")") <*>
+                       (lexeme "->" *> term))
+    <|> try (Unfold <$> ("unfold" *> space1 *> term) <*>
+                        ("as" *> space1 *> ident) <*>
+                        (lexeme "->" *> term))
+    <|> try (uncurry Pi <$> binder <*> (lexeme "->" *> term)) 
+    <|> (foldl $ Pi "_") <$> productTerm <*> many term
