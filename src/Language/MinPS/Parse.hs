@@ -3,6 +3,7 @@
 module Language.MinPS.Parse (
     Parser
   , ident
+  , stmt
   , context
   , term
 ) where
@@ -61,8 +62,13 @@ labelTerm = char '\'' *> label
 binder :: Parser (Ident, Term 'Unchecked)
 binder = enclosed "(" ")" $ (,) <$> ident <*> (lexeme ":" *> term)
 
+stmt :: Parser (Stmt 'Unchecked)
+stmt =  try (Declare <$> ident <*> (lexeme ":" *> term <* lexeme ";"))
+    <|> (Define <$> ident <*> (lexeme "=" *> term <* lexeme ";"))
+    <?> "a declaration or definition"
+
 context :: Parser (Context 'Unchecked)
-context = pure []
+context = some stmt
 
 lambda :: Parser (Term 'Unchecked)
 lambda = do
