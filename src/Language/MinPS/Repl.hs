@@ -21,6 +21,8 @@ module Language.MinPS.Repl (
   , replPutStrLn
   , replPrint
   , replPrompt
+  , replLoad
+  , replClear
 ) where
 
 import Control.Monad.State.Strict
@@ -151,16 +153,14 @@ replLine = do
         (_, term') <- replTypecheckTerm term
         n <- replNormalizeTerm term'
         replPrint n
-      `catchError` \e -> do
-        replPrint e
+      `catchError` replPrint
     Right (ReplExec stmt) -> do
       do
         stmt' <- replTypecheckStmt stmt
         replExecStmt stmt'
-      `catchError` \e -> do
-        replPrint e
+      `catchError` replPrint
     Right (ReplCmd c arg) -> case lookup c replCmds of
-      Just cmd -> cmd arg
+      Just cmd -> cmd arg `catchError` replPrint
       Nothing -> do
         replPutStrLn $ "unknown repl command: :" ++ T.unpack c
   where
@@ -185,6 +185,9 @@ replLoad (Just file) = do
   where
     handler _ = pure Nothing
 
+replClear :: Repl ()
+replClear = put initialState
+
 replLoop :: Repl ()
 replLoop = replLine >> replLoop
 
@@ -193,5 +196,7 @@ replCmds = [ ("quit", const quit)
            , ("q", const quit)
            , ("load", replLoad)
            , ("l", replLoad)
+           , ("clear", const replClear)
+           , ("c", const replClear)
            ] where
   quit = replPutStrLn "" >> liftIO exitSuccess
