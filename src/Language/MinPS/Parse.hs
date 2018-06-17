@@ -86,7 +86,7 @@ atom :: Parser (Term 'Unchecked)
 atom =  try (enclosed "(" ")" term)
     <|> try (uncurry Pair <$>
           enclosed "(" ")" ((,) <$> term <*> (lexeme "," *> term)))
-    <|> try (Enum <$> enclosed "{" "}" (some label))
+    <|> try (Enum <$> enclosed "{" "}" (many label))
     <|> try (EnumLabel <$> labelTerm)
     <|> try (Case <$> ("case" *> space1 *> term)
                   <*> (lexeme "of" *>

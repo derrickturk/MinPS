@@ -18,83 +18,52 @@ import Text.RawString.QQ
 bindings :: T.Text
 bindings = [r|Unit : Type;
 Unit = { unit };
+
 Nat : Type;
 Nat = (l : {z s}) * case l of { z -> Unit | s -> Rec [Nat] };
-Zero : Nat;
-Zero = ('z, 'unit);
+
+zero : Nat;
+zero = ('z, 'unit);
+
+succ : Nat -> Nat;
+succ = \n -> ('s, fold n);
+
+one : Nat;
+one = succ zero;
+
+add : (m: Nat) -> (n: Nat) -> Nat;
+add = \m n -> split m with (lm, m') -> !case lm of {
+    z -> [n]
+  | s -> [succ (add (unfold m') n)]
+};
+
+zeroPlusZero : Nat;
+zeroPlusZero = add zero zero;
+
+onePlusZero : Nat;
+onePlusZero = add one zero;
+
+onePlusOne : Nat;
+onePlusOne = add one one;
+
+Void : Type;
+Void = {};
+
+Fin : (n: Nat) -> Type;
+Fin = \n -> split n with (ln, n') -> !case ln of {
+    z -> [Void]
+  | s -> [(l: {z s}) * case l of {
+        z -> Unit
+      | s -> Fin (unfold n')
+    }]
+};
+
+fz : (n: Nat) -> Fin (succ n);
+fz = \n -> ('z, 'unit);
+
+fs : (n: Nat) -> (i: Fin n) -> Fin (succ n);
+fs = \n i -> ('s, i);
 |]
-
-{-
-bindings =
-  [ Declare "Unit" Type
-  , Define "Unit" (Enum [MkLabel "unit"])
-
-  , Declare "Nat" Type
-  , Define "Nat" (Sigma "l" (Enum [MkLabel "z", MkLabel "s"])
-                            (Case (Var "l") [ (MkLabel "z", Var "Unit")
-                                            , (MkLabel "s", Rec (Box (Var "Nat")))
-                                            ]))
-
-  , Declare "zero" (Var "Nat")
-  , Define "zero" (Pair (EnumLabel (MkLabel "z"))
-                        (EnumLabel (MkLabel "unit")))
-
-  , Declare "succ" (Pi "_" (Var "Nat") (Var "Nat"))
-  , Define "succ" (Lam "n" (Pair (EnumLabel (MkLabel "s"))
-                                 (Fold (Var "n"))))
-
-  , Declare "one" (Var "Nat")
-  , Define "one" (App (Var "succ") (Var "zero"))
-
-  , Declare "add" (Pi "m" (Var "Nat") (Pi "n" (Var "Nat") (Var "Nat")))
-  , Define "add"
-      (Lam "m"
-        (Lam "n"
-          (Split (Var "m") "lm" "m'"
-            (Force (Case (Var "lm")
-                     [ (MkLabel "z", Box (Var "n"))
-                     , (MkLabel "s", Box (App (Var "succ")
-                                              (App (App (Var "add")
-                                                        (Unfold (Var "m'") "m'"
-                                                                (Var "m'")))
-                                                   (Var "n"))))
-                                    ])))))
-
-  , Declare "zeroPlusZero" (Var "Nat")
-  , Define "zeroPlusZero" (App (App (Var "add") (Var "zero")) (Var "zero"))
-
-  , Declare "onePlusZero" (Var "Nat")
-  , Define "onePlusZero" (App (App (Var "add") (Var "one")) (Var "zero"))
-
-  , Declare "onePlusOne" (Var "Nat")
-  , Define "onePlusOne" (App (App (Var "add") (Var "one")) (Var "one"))
-
-  , Declare "Void" Type
-  , Define "Void" (Enum [])
-
-  , Declare "Fin" (Pi "n" (Var "Nat") Type)
-  , Define "Fin" (Lam "n"
-                   (Split (Var "n") "ln" "n'"
-                          (Force (Case (Var "ln")
-                                       [ ("z", Box (Var "Void"))
-                                       , ("s", Box (Sigma "l"
-                                                     (Enum ["z", "s"])
-                                                     (Case (Var "l")
-                                                           [ ("z", Var "Unit")
-                                                           , ("s", App (Var "Fin") (Unfold (Var "n'") "n'" (Var "n'")))
-                                                           ])))
-                                       ]))))
-
-  , Declare "fz" (Pi "n" (Var "Nat")
-                         (App (Var "Fin") (App (Var "succ") (Var "n"))))
-  , Define "fz" (Lam "n" (Pair (EnumLabel "z") (EnumLabel "unit")))
-
-  , Declare "fs" (Pi "n" (Var "Nat")
-                         (Pi "i" (App (Var "Fin") (Var "n"))
-                                 (App (Var "Fin") (App (Var "succ") (Var "n")))))
-  , Define "fs" (Lam "n" (Lam "i" (Pair (EnumLabel "s") (Var "i"))))
-  ]
--}
 
 evalNormal :: Term 'Checked -> Term 'Checked
 evalNormal t = evalState (eval t >>= normalize) emptyE
