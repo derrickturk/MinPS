@@ -160,7 +160,7 @@ replLine = do
       `catchError` \e -> do
         replPrint e
     Right (ReplCmd c arg) -> case lookup c replCmds of
-      Just cmd -> cmd
+      Just cmd -> cmd arg
       Nothing -> do
         replPutStrLn $ "unknown repl command: :" ++ T.unpack c
   where
@@ -168,11 +168,30 @@ replLine = do
       then exitSuccess
       else ioError e
 
+replLoad :: Maybe T.Text -> Repl ()
+replLoad Nothing = replPutStrLn "Usage: :load filename"
+replLoad (Just file) = do
+  let file' = T.unpack file
+  src <- liftIO $ (Just <$> TIO.readFile file') `catchError` handler
+  case src of
+    Just src' -> do
+      let parsed = P.parse (P.only P.context) file' src'
+      case parsed of
+        Left err -> replPutStrLn $ P.parseErrorPretty err
+        Right ctxt -> do
+          ctxt' <- mapM replTypecheckStmt ctxt
+          mapM_ replExecStmt ctxt'
+    Nothing -> replPutStrLn "Unable to load file."
+  where
+    handler _ = pure Nothing
+
 replLoop :: Repl ()
 replLoop = replLine >> replLoop
 
-replCmds :: [(T.Text, Repl())]
-replCmds = [ ("quit", quit)
-           , ("q", quit)
+replCmds :: [(T.Text, Maybe T.Text -> Repl())]
+replCmds = [ ("quit", const quit)
+           , ("q", const quit)
+           , ("load", replLoad)
+           , ("l", replLoad)
            ] where
   quit = replPutStrLn "" >> liftIO exitSuccess
