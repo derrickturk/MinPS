@@ -19,6 +19,8 @@ module Language.MinPS.Repl (
   , replLoop
   , replPutStr
   , replPutStrLn
+  , replPutText
+  , replPutTextLn
   , replPrint
   , replPrompt
   , replLoad
@@ -131,6 +133,12 @@ replPutStr = liftIO . putStr
 replPutStrLn :: String -> Repl ()
 replPutStrLn = liftIO . putStrLn
 
+replPutText :: T.Text -> Repl ()
+replPutText = liftIO . TIO.putStr
+
+replPutTextLn :: T.Text -> Repl ()
+replPutTextLn = liftIO . TIO.putStrLn
+
 replPrint :: Show a => a -> Repl ()
 replPrint = liftIO . print
 
@@ -153,14 +161,14 @@ replLine = do
         (_, term') <- replTypecheckTerm term
         n <- replNormalizeTerm term'
         replPrint n
-      `catchError` replPrint
+      `catchError` replHandleTypeError
     Right (ReplExec stmt) -> do
       do
         stmt' <- replTypecheckStmt stmt
         replExecStmt stmt'
-      `catchError` replPrint
+      `catchError` replHandleTypeError
     Right (ReplCmd c arg) -> case lookup c replCmds of
-      Just cmd -> cmd arg `catchError` replPrint
+      Just cmd -> cmd arg `catchError` replHandleTypeError
       Nothing -> do
         replPutStrLn $ "unknown repl command: :" ++ T.unpack c
   where
@@ -181,9 +189,17 @@ replLoad (Just file) = do
         Right ctxt -> do
           ctxt' <- mapM replTypecheckStmt ctxt
           mapM_ replExecStmt ctxt'
+        `catchError` replHandleTypeError
     Nothing -> replPutStrLn "Unable to load file."
   where
     handler _ = pure Nothing
+
+replHandleTypeError :: TypeError -> Repl ()
+replHandleTypeError e = do
+  env <- gets replEnv
+  let (e', env') = runState (typeErrorPretty e) env
+  updateEnv env'
+  replPutStrLn e'
 
 replClear :: Repl ()
 replClear = put initialState

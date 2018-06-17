@@ -1,5 +1,6 @@
 {-# LANGUAGE GADTs, DataKinds, KindSignatures, StandaloneDeriving #-}
 {-# LANGUAGE FlexibleContexts, LambdaCase, GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Language.MinPS.Check (
     TypeError
@@ -10,16 +11,19 @@ module Language.MinPS.Check (
   , runCheck
   , runCheck'
   , runInfer
+  , typeErrorPretty
 ) where
 
 import Language.MinPS.Syntax
 import Language.MinPS.Value
 import Language.MinPS.Environment
 import Language.MinPS.Eval
+import Language.MinPS.Normalize
 
 import Control.Monad.State
 import Control.Monad.Except
 import qualified Data.Set as Set
+import qualified Data.Text as T
 
 data TypeError =
     Mismatch Value Value
@@ -285,3 +289,40 @@ checkContext = go Set.empty Set.empty where
     (stmt' :@ c', decls', defns') <- checkStmt (stmt :@ c) decls defns
     (rest' :@ c'') <- go decls' defns' (rest :@ c')
     pure (stmt':rest' :@ c'')
+
+typeErrorPretty :: (MonadState Env m) => TypeError -> m String
+typeErrorPretty (Mismatch ex got) = do
+  vExp <- normalize ex
+  vGot <- normalize got
+  pure $ "type mismatch:\n\texpected " ++ show vExp
+    ++ "\n\tgot " ++ show vGot
+typeErrorPretty (ExpectedGotLambda ex) = normalize ex >>=
+  \vE -> pure $ "expected lambda; got " ++ show vE
+typeErrorPretty (ExpectedGotPair ex) = normalize ex >>=
+  \vE -> pure $ "expected pair; got " ++ show vE
+typeErrorPretty (ExpectedGotLabel (MkLabel lbl) ex) = normalize ex >>=
+  \vE -> pure $ "got label '" ++ T.unpack lbl ++ "; got " ++ show vE
+typeErrorPretty (ExpectedPiType ex) = normalize ex >>=
+  \vE -> pure $ "expected pi type; got " ++ show vE
+typeErrorPretty (ExpectedSigmaType ex) = normalize ex >>=
+  \vE -> pure $ "expected sigma type; got " ++ show vE
+typeErrorPretty (ExpectedEnumType ex) = normalize ex >>=
+  \vE -> pure $ "expected enum type; got " ++ show vE
+typeErrorPretty (ExpectedLiftedType ex) = normalize ex >>=
+  \vE -> pure $ "expected lifted type; got " ++ show vE
+typeErrorPretty (ExpectedRecType ex) = normalize ex >>=
+  \vE -> pure $ "expected Rec type; got " ++ show vE
+typeErrorPretty (Undeclared (MkIdent x)) =
+  pure $ "undeclared variable " ++ T.unpack x
+typeErrorPretty (Undefined (MkIdent x)) =
+  pure $ "undefined variable " ++ T.unpack x
+typeErrorPretty (DuplicateDeclare (MkIdent x)) =
+  pure $ "duplicate declarations for " ++ T.unpack x
+typeErrorPretty (DuplicateDefine (MkIdent x)) =
+  pure $ "duplicate definitions for " ++ T.unpack x
+typeErrorPretty (DuplicateLabel (MkLabel l)) =
+  pure $ "duplicate label " ++ T.unpack l
+typeErrorPretty (LabelsMismatch ex got) =
+  pure $ "labels mismatch; expected " ++ show ex
+  ++ ", got " ++ show got
+typeErrorPretty (NotInferable t) = pure $ "not inferable: " ++ show t
