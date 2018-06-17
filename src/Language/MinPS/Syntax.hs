@@ -8,6 +8,7 @@ module Language.MinPS.Syntax (
   , Label(..)
   , Ident(..)
   , Term(..)
+  , ReplCommand(..)
 ) where
 
 import Data.String
@@ -48,6 +49,11 @@ data Term :: TermState -> * where
   Case :: Term s -> [(Label, Term s)] -> Term s
   Force :: Term s -> Term s
   Unfold :: Term s -> Ident -> Term s -> Term s
+
+data ReplCommand =
+    ReplEval (Term 'Unchecked)
+  | ReplExec (Stmt 'Unchecked)
+  | ReplCmd T.Text (Maybe T.Text)
 
 deriving instance Show (Stmt 'Checked) 
 deriving instance Show (Stmt 'Unchecked) 

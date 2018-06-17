@@ -6,6 +6,7 @@ module Language.MinPS.Parse (
   , stmt
   , context
   , term
+  , replCommand
   , parse
   , parseMaybe
   , parseTest
@@ -131,6 +132,12 @@ term =  try (Let <$> ("let" *> space1 *> context) <*> ("in" *> space1 *> term))
                         (lexeme "->" *> term))
     <|> try (uncurry Pi <$> binder <*> (lexeme "->" *> term)) 
     <|> (foldl $ Pi "_") <$> productTerm <*> many (lexeme "->" *> term)
+
+replCommand :: Parser ReplCommand
+replCommand =  try ((ReplCmd . T.pack) <$> lexeme (char ':' *> some letterChar)
+                                       <*> optional (T.pack <$> some anyChar))
+           <|> try (ReplExec <$> stmt)
+           <|> (ReplEval <$> term)
 
 only :: Parser a -> Parser a
 only = (<* lexeme eof)

@@ -22,7 +22,6 @@ executable MinPS
                      , containers >= 0.5 && < 0.6
                      , mtl >= 2.2 && < 2.3
                      , megaparsec >= 6.4 && < 6.5
-                     , raw-strings-qq >= 1.1 && < 1.2
   other-modules:       Language.MinPS.Syntax
                      , Language.MinPS.Closure
                      , Language.MinPS.Environment
@@ -31,4 +30,5 @@ executable MinPS
                      , Language.MinPS.Normalize
                      , Language.MinPS.Check
                      , Language.MinPS.Parse
+                     , Language.MinPS.Repl
   ghc-options:         -Wall -fno-warn-unused-do-bind -O2
