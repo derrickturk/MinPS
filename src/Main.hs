@@ -1,8 +1,9 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, QuasiQuotes #-}
 
 module Main where
 
+import Language.MinPS.Parse
 import Language.MinPS.Syntax
 import Language.MinPS.Environment
 import Language.MinPS.Check
@@ -11,7 +12,19 @@ import Language.MinPS.Normalize
 
 import Control.Monad.State
 
-bindings :: Context 'Unchecked
+import qualified Data.Text as T
+import Text.RawString.QQ
+
+bindings :: T.Text
+bindings = [r|Unit : Type;
+Unit = { unit };
+Nat : Type;
+Nat = (l : {z s}) * case l of { z -> Unit | s -> Rec [Nat] };
+Zero : Nat;
+Zero = ('z, 'unit);
+|]
+
+{-
 bindings =
   [ Declare "Unit" Type
   , Define "Unit" (Enum [MkLabel "unit"])
@@ -81,18 +94,18 @@ bindings =
                                  (App (Var "Fin") (App (Var "succ") (Var "n")))))
   , Define "fs" (Lam "n" (Lam "i" (Pair (EnumLabel "s") (Var "i"))))
   ]
+-}
 
 evalNormal :: Term 'Checked -> Term 'Checked
 evalNormal t = evalState (eval t >>= normalize) emptyE
 
-
-terms :: [Term 'Unchecked]
-terms = [ Let bindings (Var "onePlusOne")
-        , Let bindings (Var "Nat")
-        , Let bindings (App (Var "fz") (Var "onePlusOne"))
-        , Let bindings (App (App (Var "fs") (Var "onePlusOne"))
-                            (App (Var "fz") (Var "one")))
-        ]
+terms :: Context 'Unchecked -> [Term 'Unchecked]
+terms ctxt = [ Let ctxt (Var "onePlusOne")
+             , Let ctxt (Var "Nat")
+             , Let ctxt (App (Var "fz") (Var "onePlusOne"))
+             , Let ctxt (App (App (Var "fs") (Var "onePlusOne"))
+                             (App (Var "fz") (Var "one")))
+             ]
 
 doIt :: Term 'Unchecked -> IO ()
 doIt t = do
@@ -107,4 +120,8 @@ doIt t = do
       print twoN
 
 main :: IO ()
-main = mapM_ doIt terms
+main = do
+  let ctxt = parse (only context) "" bindings
+  case ctxt of
+    Right ctxt' -> mapM_ doIt (terms ctxt')
+    Left e -> putStrLn $ parseErrorPretty e
