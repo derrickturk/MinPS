@@ -15,7 +15,7 @@ import Control.Monad.State
 class Normalize a where
   normalize' :: MonadState Env m => Fuel -> a -> m (Term 'Checked)
   normalize :: MonadState Env m => a -> m (Term 'Checked)
-  normalize = normalize' infiniteFuel
+  normalize x = gets getFuel >>= \f -> normalize' f x
 
 instance Normalize Value where
   normalize' _ VType = pure Type

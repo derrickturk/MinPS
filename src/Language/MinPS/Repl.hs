@@ -38,6 +38,7 @@ import System.IO (hFlush, stdout)
 import System.IO.Error (isEOFError, catchIOError, ioError)
 import System.Exit (exitSuccess)
 
+import Data.Fuel
 import Language.MinPS.Syntax
 import Language.MinPS.Environment
 import Language.MinPS.Check
@@ -211,5 +212,12 @@ replCmds = [ ("quit", const quit)
            , ("l", replLoad)
            , ("clear", const replClear)
            , ("c", const replClear)
+           , ("fuel", replSetFuel)
+           , ("f", replSetFuel)
            ] where
   quit = replPutStrLn "" >> liftIO exitSuccess
+  replSetFuel (Just t)
+    | [(n, "")] <- reads (T.unpack t) = do
+        env <- gets replEnv
+        updateEnv (setFuel (fuel n) env)
+  replSetFuel _ = replPutStrLn "Usage: :fuel count"

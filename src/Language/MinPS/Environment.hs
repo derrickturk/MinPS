@@ -9,6 +9,7 @@ module Language.MinPS.Environment (
   , Env(..)
   , setEnv
   , setConstraints
+  , setFuel
   , lookupSE
   , lookupE
   , declareE
@@ -20,6 +21,7 @@ module Language.MinPS.Environment (
   , locally
 ) where
 
+import Data.Fuel
 import Language.MinPS.Syntax
 import Language.MinPS.Closure
 import Language.MinPS.Value
@@ -52,14 +54,18 @@ data Constraints =
 
 data Env = Env { getEnv :: S.Seq EnvEntry
                , getConstraints :: Constraints
+               , getFuel :: Fuel
                }
   deriving Show
 
 setEnv :: S.Seq EnvEntry -> Env -> Env
-setEnv e (Env _ consts) = Env e consts
+setEnv e (Env _ consts f) = Env e consts f
 
 setConstraints :: Constraints -> Env -> Env
-setConstraints consts (Env e _) = Env e consts
+setConstraints consts (Env e _ f) = Env e consts f
+
+setFuel :: Fuel -> Env -> Env
+setFuel f (Env e consts _) = Env e consts f
 
 lookupSE :: Ident -> Scope -> Env -> Maybe (EnvEntry, Int)
 lookupSE x s e = lookup x s >>= \i -> lookupE i e >>= \ee -> pure (ee, i)
@@ -98,7 +104,7 @@ emptyC :: a -> Closure a
 emptyC = (:@ emptyS)
 
 emptyE :: Env
-emptyE = Env S.empty (Constraints [])
+emptyE = Env S.empty (Constraints []) infiniteFuel
 
 locally :: MonadState s m => m a -> m a
 locally m = get >>= \s -> m >>= \x -> put s >> pure x
