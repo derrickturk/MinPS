@@ -8,10 +8,9 @@ module Language.MinPS.Eval (
   , runEval
   , runEval'
   , withConstraint
+  , unconstrained
   , Equals(..)
 ) where
-
-import Debug.Trace
 
 import Control.Monad.State
 import Data.List (sortBy)
@@ -138,10 +137,12 @@ withConstraint t l m = gets getConstraints >>= \case
         m
       _ -> error "ICE: withConstraint on invalid term!"
 
+unconstrained :: MonadState Env m => m a -> m a
+unconstrained = locally . ((modify (setConstraints $ Constraints [])) >>)
+
 -- something something constraints?
 evalNeutral :: MonadState Env m => Neutral -> m Value
 evalNeutral n = do
-  traceM $ "evalNeutral : " ++ show n
   consts <- gets getConstraints
   case consts of
     Constraints cs -> go cs
@@ -149,9 +150,8 @@ evalNeutral n = do
       error "ICE: evalNeutral called with inconsistent constraints"
   where
     go [] = pure $ VNeutral n
-    go ((n', l):rest) = traceM "got constraints" >> do
+    go ((n', l):rest) = do
       eq <- n .=. n'
-      traceM "survived equality check"
       if eq
         then pure $ VEnumLabel l
         else go rest
