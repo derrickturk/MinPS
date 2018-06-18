@@ -32,4 +32,5 @@ executable MinPS
                      , Language.MinPS.Parse
                      , Language.MinPS.Pretty
                      , Language.MinPS.Repl
+                     , Data.Fuel
   ghc-options:         -Wall -O2 -fno-warn-unused-do-bind

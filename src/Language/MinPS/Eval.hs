@@ -11,6 +11,8 @@ module Language.MinPS.Eval (
   , Equals(..)
 ) where
 
+import Debug.Trace
+
 import Control.Monad.State
 import Data.List (sortBy)
 
@@ -139,6 +141,7 @@ withConstraint t l m = gets getConstraints >>= \case
 -- something something constraints?
 evalNeutral :: MonadState Env m => Neutral -> m Value
 evalNeutral n = do
+  traceM $ "evalNeutral : " ++ show n
   consts <- gets getConstraints
   case consts of
     Constraints cs -> go cs
@@ -146,8 +149,9 @@ evalNeutral n = do
       error "ICE: evalNeutral called with inconsistent constraints"
   where
     go [] = pure $ VNeutral n
-    go ((n', l):rest) = do
+    go ((n', l):rest) = traceM "got constraints" >> do
       eq <- n .=. n'
+      traceM "survived equality check"
       if eq
         then pure $ VEnumLabel l
         else go rest
