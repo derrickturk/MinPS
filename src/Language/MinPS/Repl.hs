@@ -44,6 +44,7 @@ import Language.MinPS.Check
 import Language.MinPS.Eval
 import Language.MinPS.Value
 import Language.MinPS.Normalize
+import Language.MinPS.Pretty
 import qualified Language.MinPS.Parse as P
 
 data ReplState = ReplState { replScope :: Scope
@@ -160,7 +161,7 @@ replLine = do
       do
         (_, term') <- replTypecheckTerm term
         n <- replNormalizeTerm term'
-        replPrint n
+        replPutTextLn $ pretty n
       `catchError` replHandleTypeError
     Right (ReplExec stmt) -> do
       do
@@ -195,15 +196,7 @@ replLoad (Just file) = do
     handler _ = pure Nothing
 
 replHandleTypeError :: TypeError -> Repl ()
-replHandleTypeError e = do
-  env <- gets replEnv
-  {-
-  let (e', env') = runState (typeErrorPretty e) env
-  updateEnv env'
-  replPutStrLn e'
-  -}
-  replPrint env
-  replPrint e
+replHandleTypeError = replPutTextLn . pretty
 
 replClear :: Repl ()
 replClear = put initialState

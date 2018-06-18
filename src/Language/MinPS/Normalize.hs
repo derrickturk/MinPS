@@ -74,6 +74,7 @@ instance Normalize Neutral where
       normalizeCase (l, t) = do
         t' <- eval' (t :@ c) >>= normalize
         pure (l, t')
+        -- TO AVOID crash: pure (l, t)
 
   normalize (NForce n) = Force <$> normalize n
 

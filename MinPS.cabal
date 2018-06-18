@@ -30,5 +30,6 @@ executable MinPS
                      , Language.MinPS.Normalize
                      , Language.MinPS.Check
                      , Language.MinPS.Parse
+                     , Language.MinPS.Pretty
                      , Language.MinPS.Repl
-  ghc-options:         -Wall -fno-warn-unused-do-bind
+  ghc-options:         -Wall -O2 -fno-warn-unused-do-bind

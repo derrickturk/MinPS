@@ -3,7 +3,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Language.MinPS.Check (
-    TypeError
+    TypeError(..)
   , check
   , check'
   , checkStmt
@@ -11,7 +11,6 @@ module Language.MinPS.Check (
   , runCheck
   , runCheck'
   , runInfer
-  , typeErrorPretty
 ) where
 
 import Language.MinPS.Syntax
@@ -23,7 +22,6 @@ import Language.MinPS.Normalize
 import Control.Monad.State
 import Control.Monad.Except
 import qualified Data.Set as Set
-import qualified Data.Text as T
 
 data TypeError =
     Mismatch (Term 'Checked) (Term 'Checked)
@@ -292,31 +290,3 @@ checkContext = go Set.empty Set.empty where
     (stmt' :@ c', decls', defns') <- checkStmt (stmt :@ c) decls defns
     (rest' :@ c'') <- go decls' defns' (rest :@ c')
     pure (stmt':rest' :@ c'')
-
-typeErrorPretty ::  TypeError -> String
-typeErrorPretty (Mismatch ex got) = "type mismatch:\n\texpected " ++ show ex
-  ++ "\n\tgot " ++ show got
-typeErrorPretty (ExpectedGotLambda ex) = "got lambda; expected " ++ show ex
-typeErrorPretty (ExpectedGotPair ex) = "got pair; expected " ++ show ex
-typeErrorPretty (ExpectedGotLabel (MkLabel lbl) ex) =
-  "got label '" ++ T.unpack lbl ++ "; expected " ++ show ex
-typeErrorPretty (ExpectedPiType got) = "expected pi type; got " ++ show got
-typeErrorPretty (ExpectedSigmaType got) = "expected sigma type; got "
-  ++ show got
-typeErrorPretty (ExpectedEnumType got) = "expected enum type; got "
-  ++ show got
-typeErrorPretty (ExpectedLiftedType got) = "expected lifted type; got "
-  ++ show got
-typeErrorPretty (ExpectedRecType got) = "expected Rec type; got "
-  ++ show got
-typeErrorPretty (Undeclared (MkIdent x)) = "undeclared variable " ++ T.unpack x
-typeErrorPretty (Undefined (MkIdent x)) = "undefined variable " ++ T.unpack x
-typeErrorPretty (DuplicateDeclare (MkIdent x)) =
-  "duplicate declarations for " ++ T.unpack x
-typeErrorPretty (DuplicateDefine (MkIdent x)) =
-  "duplicate definitions for " ++ T.unpack x
-typeErrorPretty (DuplicateLabel (MkLabel l)) = "duplicate label " ++ T.unpack l
-typeErrorPretty (LabelsMismatch ex got) =
-  "labels mismatch; expected " ++ show ex
-  ++ ", got " ++ show got
-typeErrorPretty (NotInferable t) = "not inferable: " ++ show t
