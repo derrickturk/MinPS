@@ -197,9 +197,13 @@ replLoad (Just file) = do
 replHandleTypeError :: TypeError -> Repl ()
 replHandleTypeError e = do
   env <- gets replEnv
+  {-
   let (e', env') = runState (typeErrorPretty e) env
   updateEnv env'
   replPutStrLn e'
+  -}
+  replPrint env
+  replPrint e
 
 replClear :: Repl ()
 replClear = put initialState

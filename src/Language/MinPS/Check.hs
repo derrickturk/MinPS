@@ -26,15 +26,15 @@ import qualified Data.Set as Set
 import qualified Data.Text as T
 
 data TypeError =
-    Mismatch Value Value
-  | ExpectedGotLambda Value
-  | ExpectedGotPair Value
-  | ExpectedGotLabel Label Value
-  | ExpectedPiType Value
-  | ExpectedSigmaType Value
-  | ExpectedEnumType Value
-  | ExpectedLiftedType Value
-  | ExpectedRecType Value
+    Mismatch (Term 'Checked) (Term 'Checked)
+  | ExpectedGotLambda (Term 'Checked)
+  | ExpectedGotPair (Term 'Checked)
+  | ExpectedGotLabel Label (Term 'Checked)
+  | ExpectedPiType (Term 'Checked)
+  | ExpectedSigmaType (Term 'Checked)
+  | ExpectedEnumType (Term 'Checked)
+  | ExpectedLiftedType (Term 'Checked)
+  | ExpectedRecType (Term 'Checked)
   | Undeclared Ident
   | Undefined Ident
   | DuplicateDeclare Ident
@@ -79,7 +79,7 @@ check' (Split t x y u :@ c) ty
               check' (u :@ c') ty
             _ -> check' (u :@ c') ty
           pure $ Split t' x y u'
-        _ -> throwError $ ExpectedSigmaType tyV
+        _ -> throwError =<< ExpectedSigmaType <$> normalize tyV
 
 check' (Case t cases :@ c) ty = do
   (ty', t') <- infer (t :@ c)
@@ -93,7 +93,7 @@ check' (Case t cases :@ c) ty = do
           pure $ Case t' (zip lbls' cases')
           where
             checkCase (l, u) = withConstraint (t' :@ c) l (check' (u :@ c) ty)
-    _ -> throwError $ ExpectedEnumType tyV
+    _ -> throwError =<< ExpectedEnumType <$> normalize tyV
 
 check' (Force t :@ c) (ty :@ d) = do
   t' <- check' (t :@ c) (Lift ty :@ d)
@@ -113,7 +113,7 @@ check' (Unfold t x u :@ c) ty = do
           check' (u :@ c') ty
         _ -> check' (u :@ c') ty
       pure $ Unfold t' x u'
-    _ -> throwError $ ExpectedRecType tyV
+    _ -> throwError =<< ExpectedRecType <$> normalize tyV
 
 -- the default case
 check' t ty = do
@@ -129,7 +129,7 @@ checkValue (Lam x t :@ c) (VPi y ((ty, u) :@ d)) = do
   i <- declareE x (Just (ty :@ d))
   t' <- check' (t :@ (x, i):c) (u :@ (y, i):d)
   pure $ Lam x t'
-checkValue (Lam _ _ :@ _) v = throwError $ ExpectedGotLambda v
+checkValue (Lam _ _ :@ _) v = throwError =<< ExpectedGotLambda <$> normalize v
 
 checkValue (Pair t u :@ c) (VSigma x ((a, b) :@ d)) = do
   t' <- check' (t :@ c) (a :@ d)
@@ -137,11 +137,12 @@ checkValue (Pair t u :@ c) (VSigma x ((a, b) :@ d)) = do
   defineE i (t' :@ c)
   u' <- check' (u :@ c) (b :@ (x, i):d)
   pure $ Pair t' u'
-checkValue (Pair _ _ :@ _) v = throwError $ ExpectedGotPair v
+checkValue (Pair _ _ :@ _) v = throwError =<< ExpectedGotPair <$> normalize v
 
 checkValue (EnumLabel l :@ _) (VEnum lbls)
   | l `elem` lbls = pure $ EnumLabel l
-checkValue (EnumLabel l :@ _) v = throwError $ ExpectedGotLabel l v
+checkValue (EnumLabel l :@ _) v =
+  throwError =<< ExpectedGotLabel <$> pure l <*> normalize v
 
 -- these rules are copied from the original and I do not 100%
 --   understand their absence of other cases
@@ -160,7 +161,9 @@ checkValue t v = do
   (ty, t') <- infer t
   v' <- eval' ty
   eq <- v .=. v'
-  if eq then pure t' else throwError (Mismatch v v')
+  if eq
+    then pure t'
+    else throwError =<< Mismatch <$> normalize v <*> normalize v'
 
 infer :: (MonadState Env m, MonadError TypeError m)
       => Closure (Term 'Unchecked) -- the term
@@ -220,14 +223,14 @@ infer (App f t :@ c) = do
       i <- declareE x Nothing
       defineE i (t' :@ c)
       pure (pyResTy :@ (x, i):d, App f' t')
-    _ -> throwError $ ExpectedPiType fTyV
+    _ -> throwError =<< ExpectedPiType <$> normalize fTyV
 
 infer (Force t :@ c) = do
   (ty, t') <- infer (t :@ c)
   tyV <- eval' ty
   case tyV of
     VLift tyBase -> pure (tyBase, Force t')
-    _ -> throwError $ ExpectedLiftedType tyV
+    _ -> throwError =<< ExpectedLiftedType <$> normalize tyV
 
 -- handle non-inferable cases
 infer t = throwError $ NotInferable t
@@ -290,39 +293,30 @@ checkContext = go Set.empty Set.empty where
     (rest' :@ c'') <- go decls' defns' (rest :@ c')
     pure (stmt':rest' :@ c'')
 
-typeErrorPretty :: (MonadState Env m) => TypeError -> m String
-typeErrorPretty (Mismatch ex got) = do
-  vExp <- normalize ex
-  vGot <- normalize got
-  pure $ "type mismatch:\n\texpected " ++ show vExp
-    ++ "\n\tgot " ++ show vGot
-typeErrorPretty (ExpectedGotLambda ex) = normalize ex >>=
-  \vE -> pure $ "expected lambda; got " ++ show vE
-typeErrorPretty (ExpectedGotPair ex) = normalize ex >>=
-  \vE -> pure $ "expected pair; got " ++ show vE
-typeErrorPretty (ExpectedGotLabel (MkLabel lbl) ex) = normalize ex >>=
-  \vE -> pure $ "got label '" ++ T.unpack lbl ++ "; got " ++ show vE
-typeErrorPretty (ExpectedPiType ex) = normalize ex >>=
-  \vE -> pure $ "expected pi type; got " ++ show vE
-typeErrorPretty (ExpectedSigmaType ex) = normalize ex >>=
-  \vE -> pure $ "expected sigma type; got " ++ show vE
-typeErrorPretty (ExpectedEnumType ex) = normalize ex >>=
-  \vE -> pure $ "expected enum type; got " ++ show vE
-typeErrorPretty (ExpectedLiftedType ex) = normalize ex >>=
-  \vE -> pure $ "expected lifted type; got " ++ show vE
-typeErrorPretty (ExpectedRecType ex) = normalize ex >>=
-  \vE -> pure $ "expected Rec type; got " ++ show vE
-typeErrorPretty (Undeclared (MkIdent x)) =
-  pure $ "undeclared variable " ++ T.unpack x
-typeErrorPretty (Undefined (MkIdent x)) =
-  pure $ "undefined variable " ++ T.unpack x
+typeErrorPretty ::  TypeError -> String
+typeErrorPretty (Mismatch ex got) = "type mismatch:\n\texpected " ++ show ex
+  ++ "\n\tgot " ++ show got
+typeErrorPretty (ExpectedGotLambda ex) = "got lambda; expected " ++ show ex
+typeErrorPretty (ExpectedGotPair ex) = "got pair; expected " ++ show ex
+typeErrorPretty (ExpectedGotLabel (MkLabel lbl) ex) =
+  "got label '" ++ T.unpack lbl ++ "; expected " ++ show ex
+typeErrorPretty (ExpectedPiType got) = "expected pi type; got " ++ show got
+typeErrorPretty (ExpectedSigmaType got) = "expected sigma type; got "
+  ++ show got
+typeErrorPretty (ExpectedEnumType got) = "expected enum type; got "
+  ++ show got
+typeErrorPretty (ExpectedLiftedType got) = "expected lifted type; got "
+  ++ show got
+typeErrorPretty (ExpectedRecType got) = "expected Rec type; got "
+  ++ show got
+typeErrorPretty (Undeclared (MkIdent x)) = "undeclared variable " ++ T.unpack x
+typeErrorPretty (Undefined (MkIdent x)) = "undefined variable " ++ T.unpack x
 typeErrorPretty (DuplicateDeclare (MkIdent x)) =
-  pure $ "duplicate declarations for " ++ T.unpack x
+  "duplicate declarations for " ++ T.unpack x
 typeErrorPretty (DuplicateDefine (MkIdent x)) =
-  pure $ "duplicate definitions for " ++ T.unpack x
-typeErrorPretty (DuplicateLabel (MkLabel l)) =
-  pure $ "duplicate label " ++ T.unpack l
+  "duplicate definitions for " ++ T.unpack x
+typeErrorPretty (DuplicateLabel (MkLabel l)) = "duplicate label " ++ T.unpack l
 typeErrorPretty (LabelsMismatch ex got) =
-  pure $ "labels mismatch; expected " ++ show ex
+  "labels mismatch; expected " ++ show ex
   ++ ", got " ++ show got
-typeErrorPretty (NotInferable t) = pure $ "not inferable: " ++ show t
+typeErrorPretty (NotInferable t) = "not inferable: " ++ show t
