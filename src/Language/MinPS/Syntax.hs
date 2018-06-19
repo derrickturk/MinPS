@@ -27,6 +27,7 @@ newtype Ident = MkIdent { getIdent :: T.Text }
 data Stmt :: TermState -> * where
   Declare :: Ident -> Term s -> Stmt s
   Define :: Ident -> Term s -> Stmt s
+  DeclareDefine :: Ident -> Term s -> Term s -> Stmt s
 
 type Context s = [Stmt s]
 

@@ -77,7 +77,10 @@ binder = enclosed "(" ")" $ (,) <$> ident <*> (lexeme ":" *> term)
 
 stmt :: Parser (Stmt 'Unchecked)
 stmt =  try (Declare <$> ident <*> (lexeme ":" *> term <* lexeme ";"))
-    <|> (Define <$> ident <*> (lexeme "=" *> term <* lexeme ";"))
+    <|> try (Define <$> ident <*> (lexeme "=" *> term <* lexeme ";"))
+    <|> (DeclareDefine <$> ident
+                       <*> (lexeme ":" *> term)
+                       <*> (lexeme "=" *> term <* lexeme ";"))
     <?> "a declaration or definition"
 
 context :: Parser (Context 'Unchecked)

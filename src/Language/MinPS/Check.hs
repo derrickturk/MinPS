@@ -270,6 +270,12 @@ checkStmt (Define x t :@ c) decls defns = if Set.member x defns
       t' <- check' (t :@ c) ty
       defineE i (t' :@ c)
       pure (Define x t' :@ c, decls, Set.insert x defns)
+checkStmt (DeclareDefine x ty t :@ c) decls defns = do
+  (Declare _ ty' :@ c', decls', defns') <-
+    checkStmt (Declare x ty :@ c) decls defns
+  (Define _ t' :@ c'', decls'', defns'') <-
+    checkStmt (Define x t :@ c') decls' defns'
+  pure (DeclareDefine x ty' t' :@ c'', decls'', defns'')
 
 checkContext :: (MonadState Env m, MonadError TypeError m)
              => Closure (Context 'Unchecked)

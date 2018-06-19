@@ -23,6 +23,8 @@ instance Pretty (Label) where
 instance Pretty (Stmt a) where
   pretty (Declare x ty) = pretty x <> ": " <> pretty ty <> ";\n"
   pretty (Define x t) = pretty x <> " = " <> pretty t <> ";\n"
+  pretty (DeclareDefine x ty t) = pretty x <> ": " <> pretty ty
+    <> " = " <> pretty t <> ";\n"
 
 instance Pretty (Term a) where
   pretty (Let ctxt t) = "let " <> foldMap pretty ctxt <> "in " <> pretty t

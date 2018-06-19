@@ -106,6 +106,8 @@ evalStmt (Define x t) c = case lookup x c of
     defineE i (t :@ c)
     pure c
   _ -> error "ICE: define-without-declare passed check"
+evalStmt (DeclareDefine x ty t) c =
+  evalStmt (Declare x ty) c >>= evalStmt (Define x t)
 
 evalContext :: MonadState Env m => Context 'Checked -> Scope -> m Scope
 evalContext [] c = pure c
