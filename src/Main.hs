@@ -7,5 +7,9 @@ main = banner >> runRepl_ replLoop initialState
 
 banner :: IO ()
 banner = do
-  putStrLn "It's MinPS!"
+  putStrLn "    __      __     _       ____"
+  putStrLn "   /  \\    /  \\   |_|     |  _ | __"
+  putStrLn "  / /\\ \\  / /\\ \\   _  ___ |  __|| _|  by dwt"
+  putStrLn " / /  \\ \\/ /  \\ \\ | ||`  || |   |_ |  terminus data science, LLC"
+  putStrLn "/_/    \\__/    \\_\\|_||_|_||_|   |__|  (c) 2018"
   putStrLn ""

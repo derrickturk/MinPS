@@ -200,7 +200,9 @@ replHandleTypeError :: TypeError -> Repl ()
 replHandleTypeError = replPutTextLn . pretty
 
 replClear :: Repl ()
-replClear = put initialState
+replClear = do
+  f <- gets (getFuel . replEnv)
+  put $ initialState { replEnv = setFuel f emptyE }
 
 replLoop :: Repl ()
 replLoop = replLine >> replLoop
@@ -217,6 +219,9 @@ replCmds = [ ("quit", const quit)
            ] where
   quit = replPutStrLn "" >> liftIO exitSuccess
   replSetFuel (Just t)
+    | t == "infinite" = do
+        env <- gets replEnv
+        updateEnv (setFuel infiniteFuel env)
     | [(n, "")] <- reads (T.unpack t) = do
         env <- gets replEnv
         updateEnv (setFuel (fuel n) env)
