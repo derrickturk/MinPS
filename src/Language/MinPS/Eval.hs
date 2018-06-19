@@ -331,18 +331,21 @@ instance Equals Neutral where
 
   NApp n t .=. NApp m u = do
     nEq <- n .=. m
-    tEq <- join $ (.=.) <$> eval' t <*> eval' u
-    pure $ nEq && tEq
+    case nEq of
+      False -> pure False
+      True -> join $ (.=.) <$> eval' t <*> eval' u
 
   NSplit n x y t .=. NSplit m w z u = do
     nEq <- n .=. m
-    tEq <- equalsBound2 Nothing x Nothing y t w z u
-    pure $ nEq && tEq
+    case nEq of
+      False -> pure False
+      True -> equalsBound2 Nothing x Nothing y t w z u
 
   NCase n (casesN :@ c) .=. NCase m (casesM :@ d) = do
     nEq <- n .=. m
-    casesEq <- go casesN casesM
-    pure $ nEq && casesEq
+    case nEq of
+      False -> pure False
+      True -> go casesN casesM
     where
       go [] [] = pure True
       go [] _ = pure False
@@ -358,7 +361,8 @@ instance Equals Neutral where
 
   NUnfold n x t .=. NUnfold m y u = do
     nEq <- n .=. m
-    tEq <- equalsBound Nothing x t y u
-    pure $ nEq && tEq
+    case nEq of
+      False -> pure False
+      True -> equalsBound Nothing x t y u
 
   _ .=. _ = pure False
