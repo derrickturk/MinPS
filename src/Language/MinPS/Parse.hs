@@ -29,11 +29,14 @@ import Language.MinPS.Syntax
 
 type Parser = Parsec Void T.Text
 
+space' :: Parser ()
+space' = L.space space1 (L.skipLineComment "--") (L.skipBlockComment "{-" "-}")
+
 lexeme :: Parser a -> Parser a
-lexeme = L.lexeme space
+lexeme = L.lexeme space'
 
 symbol :: T.Text -> Parser T.Text
-symbol = L.symbol space
+symbol = L.symbol space'
 
 enclosed :: T.Text -> T.Text -> Parser a -> Parser a
 enclosed left right = between (symbol left) (symbol right)
