@@ -85,7 +85,7 @@ updateScope s = modify (\r -> r { replScope = s })
 updateEnv :: Env -> Repl ()
 updateEnv e = modify (\r -> r { replEnv = e })
 
-replTypecheckStmt :: Stmt 'Unchecked -> Repl (Stmt 'Checked)
+replTypecheckStmt :: Stmt 'Unchecked -> Repl (Stmt 'KnownType)
 replTypecheckStmt stmt = Repl $ do
   ReplState c env decls defns <- get
   case runState (runExceptT $ checkStmt (stmt :@ c) decls defns) env of
@@ -94,15 +94,14 @@ replTypecheckStmt stmt = Repl $ do
       pure stmt'
     (Left e, _) -> throwError e
 
-replTypecheckTerm :: UTerm
-                  -> Repl (Closure (CTerm), CTerm)
+replTypecheckTerm :: UTerm -> Repl KTerm
 replTypecheckTerm term = Repl $ do
   env <- gets replEnv
   c <- gets replScope
   case runState (runExceptT $ infer (term :@ c)) env of
-    (Right (ty, term'), env') -> do
+    (Right term', env') -> do
       getRepl $ updateEnv env'
-      pure (ty, term')
+      pure term'
     (Left e, _) -> throwError e
 
 replExecStmt :: Stmt 'Checked -> Repl ()
@@ -160,14 +159,23 @@ replLine = do
       replPutStrLn $ P.parseErrorPretty err
     Right (ReplEval term) -> do
       do
-        (_, term') <- replTypecheckTerm term
-        n <- replNormalizeTerm term'
+        term' <- replTypecheckTerm term
+        n <- replNormalizeTerm (forget term')
         replPutTextLn $ pretty n
+
+        {- this would be more useful if it normalized
+        let ty :@ c = typeOf term'
+        replPutText " : "
+        replPutText $ pretty ty
+        replPutText " w/ "
+        replPrint c
+        -}
+
       `catchError` replHandleTypeError
     Right (ReplExec stmt) -> do
       do
         stmt' <- replTypecheckStmt stmt
-        replExecStmt stmt'
+        replExecStmt $ forget stmt'
       `catchError` replHandleTypeError
     Right (ReplCmd c arg) -> case lookup c replCmds of
       Just cmd -> cmd arg `catchError` replHandleTypeError
@@ -190,7 +198,7 @@ replLoad (Just file) = do
         Left err -> replPutStrLn $ P.parseErrorPretty err
         Right ctxt -> do
           ctxt' <- mapM replTypecheckStmt ctxt
-          mapM_ replExecStmt ctxt'
+          mapM_ (replExecStmt . forget) ctxt'
         `catchError` replHandleTypeError
     Nothing -> replPutStrLn "Unable to load file."
   where

@@ -15,6 +15,7 @@ module Language.MinPS.Syntax (
   , KTerm
   , ReplCommand(..)
   , Forget(..)
+  , typeOf
 
   , XLet
   , XType
@@ -388,15 +389,40 @@ pattern KForce kTy t = Force kTy t
 pattern KUnfold :: Closure CTerm -> KTerm -> Ident -> KTerm -> KTerm
 pattern KUnfold kTy t x u = Unfold kTy t x u
 
-deriving instance Show (Stmt 'Checked) 
-deriving instance Show (Stmt 'Unchecked) 
-deriving instance Eq (Stmt 'Checked)
-deriving instance Eq (Stmt 'Unchecked)
+typeOf :: KTerm -> Closure CTerm
+typeOf (KLet ty _ _) = ty
+typeOf (KType ty) = ty
+typeOf (KVar ty _) = ty
+typeOf (KPi ty _ _ _) = ty
+typeOf (KSigma ty _ _ _) = ty
+typeOf (KLam ty _ _) = ty
+typeOf (KPair ty _ _) = ty
+typeOf (KEnum ty _) = ty
+typeOf (KEnumLabel ty _) = ty
+typeOf (KLift ty _) = ty
+typeOf (KBox ty _) = ty
+typeOf (KRec ty _) = ty
+typeOf (KFold ty _) = ty
+typeOf (KApp ty _ _) = ty
+typeOf (KSplit ty _ _ _ _) = ty
+typeOf (KCase ty _ _) = ty
+typeOf (KForce ty _) = ty
+typeOf (KUnfold ty _ _ _) = ty
+typeOf (TermX v) = absurd v
 
 deriving instance Show (TermX 'Checked)
 deriving instance Show (TermX 'Unchecked)
+deriving instance Show (TermX 'KnownType)
 deriving instance Eq (TermX 'Checked)
 deriving instance Eq (TermX 'Unchecked)
+deriving instance Eq (TermX 'KnownType)
+
+deriving instance Show (Stmt 'Checked) 
+deriving instance Show (Stmt 'Unchecked) 
+deriving instance Show (Stmt 'KnownType) 
+deriving instance Eq (Stmt 'Checked)
+deriving instance Eq (Stmt 'Unchecked)
+deriving instance Eq (Stmt 'KnownType)
 
 class Forget (f :: TermState -> *) (s :: TermState) (t :: TermState) where
   forget :: f s -> f t
