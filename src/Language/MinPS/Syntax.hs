@@ -1,7 +1,8 @@
 {-# LANGUAGE GADTs, DataKinds, KindSignatures, StandaloneDeriving #-}
 {-# LANGUAGE FlexibleInstances, TypeFamilies, GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses, FlexibleContexts, UndecidableInstances #-}
-{-# LANGUAGE BangPatterns, PatternSynonyms #-}
+{-# LANGUAGE PolyKinds, RankNTypes, BangPatterns, PatternSynonyms #-}
+{-# LANGUAGE TypeOperators #-}
 
 module Language.MinPS.Syntax (
     TermState(..)
@@ -136,6 +137,28 @@ data TermX :: TermState -> * where
   Force :: !(XForce s) -> TermX s -> TermX s
   Unfold :: !(XUnfold s) -> TermX s -> Ident -> TermX s -> TermX s
   TermX :: !(XTerm s) -> TermX s
+
+data TermXF :: (TermState -> *) -> TermState -> * where
+  LetF :: !(XLet s) -> Context s -> f s -> TermXF f s
+  TypeF :: !(XType s) -> TermXF f s
+
+newtype Fix1 (f :: (k -> *) -> k -> *) (i :: k) = In1 { out1 :: f (Fix1 f) i }
+
+type TermX' s = Fix1 TermXF s
+
+-- natural transformations
+type f :~> g = forall a . f a -> g a
+infixr 0 :~>
+
+class Functor1 (f :: (k -> *) -> k -> *) where
+  fmap1 :: (s :~> t) -> f s :~> f t
+
+instance Functor1 TermXF where
+  fmap1 f (LetF a ctxt t) = LetF a ctxt (f t) 
+  fmap1 _ (TypeF a) = TypeF a
+
+cata1 :: Functor1 f => (f s :~> s) -> Fix1 f :~> s
+cata1 f = f . fmap1 (cata1 f) . out1
 
 data ReplCommand =
     ReplEval (TermX 'Unchecked)
