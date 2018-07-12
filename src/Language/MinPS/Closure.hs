@@ -1,14 +1,18 @@
 {-# LANGUAGE GADTs, KindSignatures, StandaloneDeriving #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module Language.MinPS.Closure (
     Scope
+  , Ident(..)
   , Closure(..)
 ) where
 
-import Language.MinPS.Syntax
-
+import Data.String
 import Data.List (intercalate)
 import qualified Data.Text as T
+
+newtype Ident = MkIdent { getIdent :: T.Text }
+  deriving (Show, Eq, IsString, Ord)
 
 type Scope = [(Ident, Int)]
 

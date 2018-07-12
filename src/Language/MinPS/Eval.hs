@@ -12,6 +12,7 @@ module Language.MinPS.Eval (
   , Equals(..)
 ) where
 
+import Data.Void (absurd)
 import Control.Monad.State
 import Data.List (sortBy)
 
@@ -93,6 +94,8 @@ eval' (CUnfold t x u :@ c) = eval' (t :@ c) >>= \case
     defineE i t'
     eval' (u :@ (x, i):c)
   v -> errorV v "ICE: invalid unfold passed check"
+
+eval' (TermX v :@ _) = absurd v
 
 errorV :: Value -> String -> a
 errorV v s = error $ s ++ ": " ++ show v

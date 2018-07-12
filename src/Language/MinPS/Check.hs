@@ -139,7 +139,7 @@ checkValue (UPair _ _ :@ _) v = throwError =<< ExpectedGotPair <$> normalize v
 
 checkValue (UEnumLabel l :@ _) (VEnum lbls)
   | l `elem` lbls = pure $ CEnumLabel l
-checkValue (CEnumLabel l :@ _) v =
+checkValue (UEnumLabel l :@ _) v =
   throwError =<< ExpectedGotLabel <$> pure l <*> normalize v
 
 -- these rules are copied from the original and I do not 100%

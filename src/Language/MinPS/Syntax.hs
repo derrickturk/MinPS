@@ -1,5 +1,6 @@
 {-# LANGUAGE GADTs, DataKinds, KindSignatures, StandaloneDeriving #-}
 {-# LANGUAGE FlexibleInstances, TypeFamilies, GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE MultiParamTypeClasses, FlexibleContexts, UndecidableInstances #-}
 {-# LANGUAGE BangPatterns, PatternSynonyms #-}
 
 module Language.MinPS.Syntax (
@@ -11,7 +12,9 @@ module Language.MinPS.Syntax (
   , TermX(..)
   , UTerm
   , CTerm
+  , KTerm
   , ReplCommand(..)
+  , Forget(..)
 
   , XLet
   , XType
@@ -70,20 +73,39 @@ module Language.MinPS.Syntax (
   , pattern CCase
   , pattern CForce
   , pattern CUnfold
+
+  , pattern KLet
+  , pattern KType
+  , pattern KVar
+  , pattern KPi
+  , pattern KSigma
+  , pattern KLam
+  , pattern KPair
+  , pattern KEnum
+  , pattern KEnumLabel
+  , pattern KLift
+  , pattern KBox
+  , pattern KRec
+  , pattern KFold
+  , pattern KApp
+  , pattern KSplit
+  , pattern KCase
+  , pattern KForce
+  , pattern KUnfold
 ) where
 
 import Data.Void
 import Data.String
 import qualified Data.Text as T
 
+import Language.MinPS.Closure
+
 data TermState = Unchecked
                | Checked
+               | KnownType
                deriving Show
 
 newtype Label = MkLabel { getLabel :: T.Text }
-  deriving (Show, Eq, IsString, Ord)
-
-newtype Ident = MkIdent { getIdent :: T.Text }
   deriving (Show, Eq, IsString, Ord)
 
 data Stmt :: TermState -> * where
@@ -142,6 +164,7 @@ type family XTerm (s :: TermState)
 
 type UTerm = TermX 'Unchecked
 type CTerm = TermX 'Checked
+type KTerm = TermX 'KnownType
 
 type instance XLet 'Unchecked = ()
 type instance XType 'Unchecked = ()
@@ -237,24 +260,133 @@ type instance XForce 'Checked = ()
 type instance XUnfold 'Checked = ()
 type instance XTerm 'Checked = Void
 
+pattern CLet :: Context 'Checked -> CTerm -> CTerm
 pattern CLet ctxt t = Let () ctxt t
+
+pattern CType :: CTerm
 pattern CType = Type ()
+
+pattern CVar :: Ident -> CTerm
 pattern CVar x = Var () x
+
+pattern CPi :: Ident -> CTerm -> CTerm -> CTerm
 pattern CPi x ty t = Pi () x ty t
+
+pattern CSigma :: Ident -> CTerm -> CTerm -> CTerm
 pattern CSigma x ty t = Sigma () x ty t
+
+pattern CLam :: Ident -> CTerm -> CTerm
 pattern CLam x t = Lam () x t
+
+pattern CPair :: CTerm -> CTerm -> CTerm
 pattern CPair t u = Pair () t u
+
+pattern CEnum :: [Label] -> CTerm
 pattern CEnum lbls = Enum () lbls
+
+pattern CEnumLabel :: Label -> CTerm
 pattern CEnumLabel l = EnumLabel () l
+
+pattern CLift :: CTerm -> CTerm
 pattern CLift ty = Lift () ty
+
+pattern CBox :: CTerm -> CTerm
 pattern CBox t = Box () t
+
+pattern CRec :: CTerm -> CTerm
 pattern CRec ty = Rec () ty
+
+pattern CFold :: CTerm -> CTerm
 pattern CFold t = Fold () t
+
+pattern CApp :: CTerm -> CTerm -> CTerm
 pattern CApp f x = App () f x
+
+pattern CSplit :: CTerm -> Ident -> Ident -> CTerm -> CTerm
 pattern CSplit t x y u = Split () t x y u
+
+pattern CCase :: CTerm -> [(Label, CTerm)] -> CTerm
 pattern CCase t cases = Case () t cases
+
+pattern CForce :: CTerm -> CTerm
 pattern CForce t = Force () t
+
+pattern CUnfold :: CTerm -> Ident -> CTerm -> CTerm
 pattern CUnfold t x u = Unfold () t x u
+
+type instance XLet 'KnownType = Closure CTerm
+type instance XType 'KnownType = Closure CTerm
+type instance XVar 'KnownType = Closure CTerm
+type instance XPi 'KnownType = Closure CTerm
+type instance XSigma 'KnownType = Closure CTerm
+type instance XLam 'KnownType = Closure CTerm
+type instance XPair 'KnownType = Closure CTerm
+type instance XEnum 'KnownType = Closure CTerm
+type instance XEnumLabel 'KnownType = Closure CTerm
+type instance XLift 'KnownType = Closure CTerm
+type instance XBox 'KnownType = Closure CTerm
+type instance XRec 'KnownType = Closure CTerm
+type instance XFold 'KnownType = Closure CTerm
+type instance XApp 'KnownType = Closure CTerm
+type instance XSplit 'KnownType = Closure CTerm
+type instance XCase 'KnownType = Closure CTerm
+type instance XForce 'KnownType = Closure CTerm
+type instance XUnfold 'KnownType = Closure CTerm
+type instance XTerm 'KnownType = Void
+
+pattern KLet :: Closure CTerm -> Context 'KnownType -> KTerm -> KTerm
+pattern KLet kTy ctxt t = Let kTy ctxt t
+
+pattern KType :: Closure CTerm -> KTerm
+pattern KType kTy = Type kTy
+
+pattern KVar :: Closure CTerm -> Ident -> KTerm
+pattern KVar kTy x = Var kTy x
+
+pattern KPi :: Closure CTerm -> Ident -> KTerm -> KTerm -> KTerm
+pattern KPi kTy x ty t = Pi kTy x ty t
+
+pattern KSigma :: Closure CTerm -> Ident -> KTerm -> KTerm -> KTerm
+pattern KSigma kTy x ty t = Sigma kTy x ty t
+
+pattern KLam :: Closure CTerm -> Ident -> KTerm -> KTerm
+pattern KLam kTy x t = Lam kTy x t
+
+pattern KPair :: Closure CTerm -> KTerm -> KTerm -> KTerm
+pattern KPair kTy t u = Pair kTy t u
+
+pattern KEnum :: Closure CTerm -> [Label] -> KTerm
+pattern KEnum kTy lbls = Enum kTy lbls
+
+pattern KEnumLabel :: Closure CTerm -> Label -> KTerm
+pattern KEnumLabel kTy l = EnumLabel kTy l
+
+pattern KLift :: Closure CTerm -> KTerm -> KTerm
+pattern KLift kTy ty = Lift kTy ty
+
+pattern KBox :: Closure CTerm -> KTerm -> KTerm
+pattern KBox kTy t = Box kTy t
+
+pattern KRec :: Closure CTerm -> KTerm -> KTerm
+pattern KRec kTy ty = Rec kTy ty
+
+pattern KFold :: Closure CTerm -> KTerm -> KTerm
+pattern KFold kTy t = Fold kTy t
+
+pattern KApp :: Closure CTerm -> KTerm -> KTerm -> KTerm
+pattern KApp kTy f x = App kTy f x
+
+pattern KSplit :: Closure CTerm -> KTerm -> Ident -> Ident -> KTerm -> KTerm
+pattern KSplit kTy t x y u = Split kTy t x y u
+
+pattern KCase :: Closure CTerm -> KTerm -> [(Label, KTerm)] -> KTerm
+pattern KCase kTy t cases = Case kTy t cases
+
+pattern KForce :: Closure CTerm -> KTerm -> KTerm
+pattern KForce kTy t = Force kTy t
+
+pattern KUnfold :: Closure CTerm -> KTerm -> Ident -> KTerm -> KTerm
+pattern KUnfold kTy t x u = Unfold kTy t x u
 
 deriving instance Show (Stmt 'Checked) 
 deriving instance Show (Stmt 'Unchecked) 
@@ -265,3 +397,54 @@ deriving instance Show (TermX 'Checked)
 deriving instance Show (TermX 'Unchecked)
 deriving instance Eq (TermX 'Checked)
 deriving instance Eq (TermX 'Unchecked)
+
+class Forget (f :: TermState -> *) (s :: TermState) (t :: TermState) where
+  forget :: f s -> f t
+
+instance (
+    XTerm s ~ Void
+  , XLet t ~ ()
+  , XType t ~ ()
+  , XVar t ~ ()
+  , XPi t ~ ()
+  , XSigma t ~ ()
+  , XLam t ~ ()
+  , XPair t ~ ()
+  , XEnum t ~ ()
+  , XEnumLabel t ~ ()
+  , XLift t ~ ()
+  , XBox t ~ ()
+  , XRec t ~ ()
+  , XFold t ~ ()
+  , XApp t ~ ()
+  , XSplit t ~ ()
+  , XCase t ~ ()
+  , XForce t ~ ()
+  , XUnfold t ~ ()
+  ) => Forget TermX s t where
+  forget (Let _ ctxt t) = Let () (forget <$> ctxt) (forget t)
+  forget (Type _) = Type ()
+  forget (Var _ x) = Var () x
+  forget (Pi _ x ty t) = Pi () x (forget ty) (forget t)
+  forget (Sigma _ x ty t) = Sigma () x (forget ty) (forget t)
+  forget (Lam _ x t) = Lam () x (forget t)
+  forget (Pair _ x y) = Pair () (forget x) (forget y)
+  forget (Enum _ lbls) = Enum () lbls
+  forget (EnumLabel _ l) = EnumLabel () l
+  forget (Lift _ t) = Lift () (forget t)
+  forget (Box _ t) = Box () (forget t)
+  forget (Rec _ t) = Rec () (forget t)
+  forget (Fold _ t) = Fold () (forget t)
+  forget (App _ f t) = App () (forget f) (forget t)
+  forget (Split _ t x y u) = Split () (forget t) x y (forget u)
+  forget (Case _ t cases) = Case () (forget t) (forgetCase <$> cases) where
+    forgetCase (l, u) = (l, forget u)
+  forget (Force _ t) = Force () (forget t)
+  forget (Unfold _ t x u) = Unfold () (forget t) x (forget u)
+  forget (TermX v) = absurd v
+
+{- requires UndecidableInstances; I don't see the problem -}
+instance Forget TermX s t => Forget Stmt s t where
+  forget (Declare x ty) = Declare x (forget ty)
+  forget (Define x t) = Define x (forget t)
+  forget (DeclareDefine x ty t) = DeclareDefine x (forget ty) (forget t)
