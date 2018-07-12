@@ -94,7 +94,7 @@ check' (UCase t cases :@ c) ty = do
     _ -> throwError =<< ExpectedEnumType <$> normalize tyV
 
 check' (UForce t :@ c) (ty :@ d) = do
-  t' <- check' (t :@ c) (ULift ty :@ d)
+  t' <- check' (t :@ c) (CLift ty :@ d)
   pure $ CForce t'
 
 check' (UUnfold t x u :@ c) ty = do

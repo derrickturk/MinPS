@@ -163,24 +163,58 @@ type instance XForce 'Unchecked = ()
 type instance XUnfold 'Unchecked = ()
 type instance XTerm 'Unchecked = Void
 
--- pattern ULet :: Context 'Unchecked -> TermX 'Unchecked -> TermX 'Unchecked
+pattern ULet :: Context 'Unchecked -> UTerm -> UTerm
 pattern ULet ctxt t = Let () ctxt t
+
+pattern UType :: UTerm
 pattern UType = Type ()
+
+pattern UVar :: Ident -> UTerm
 pattern UVar x = Var () x
+
+pattern UPi :: Ident -> UTerm -> UTerm -> UTerm
 pattern UPi x ty t = Pi () x ty t
+
+pattern USigma :: Ident -> UTerm -> UTerm -> UTerm
 pattern USigma x ty t = Sigma () x ty t
+
+pattern ULam :: Ident -> UTerm -> UTerm
 pattern ULam x t = Lam () x t
+
+pattern UPair :: UTerm -> UTerm -> UTerm
 pattern UPair t u = Pair () t u
+
+pattern UEnum :: [Label] -> UTerm
 pattern UEnum lbls = Enum () lbls
+
+pattern UEnumLabel :: Label -> UTerm
 pattern UEnumLabel l = EnumLabel () l
+
+pattern ULift :: UTerm -> UTerm
 pattern ULift ty = Lift () ty
+
+pattern UBox :: UTerm -> UTerm
 pattern UBox t = Box () t
+
+pattern URec :: UTerm -> UTerm
 pattern URec ty = Rec () ty
+
+pattern UFold :: UTerm -> UTerm
 pattern UFold t = Fold () t
+
+pattern UApp :: UTerm -> UTerm -> UTerm
 pattern UApp f x = App () f x
+
+pattern USplit :: UTerm -> Ident -> Ident -> UTerm -> UTerm
 pattern USplit t x y u = Split () t x y u
+
+pattern UCase :: UTerm -> [(Label, UTerm)] -> UTerm
 pattern UCase t cases = Case () t cases
+
+pattern UForce :: UTerm -> UTerm
 pattern UForce t = Force () t
+
+pattern UUnfold :: UTerm -> Ident -> UTerm -> UTerm
 pattern UUnfold t x u = Unfold () t x u
 
 type instance XLet 'Checked = ()
