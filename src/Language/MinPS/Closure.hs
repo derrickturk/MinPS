@@ -7,7 +7,7 @@ module Language.MinPS.Closure (
   , Closure(..)
 ) where
 
-import Data.String
+import Data.String (IsString)
 import Data.List (intercalate)
 import qualified Data.Text as T
 

@@ -241,6 +241,10 @@ pattern UForce t = Force () t
 pattern UUnfold :: UTerm -> Ident -> UTerm -> UTerm
 pattern UUnfold t x u = Unfold () t x u
 
+{-# COMPLETE ULet, UType, UVar, UPi, USigma,
+   ULam, UPair, UEnum, UEnumLabel, ULift, UBox, URec,
+   UFold, UApp, USplit, UCase, UForce, UUnfold #-}
+
 type instance XLet 'Checked = ()
 type instance XType 'Checked = ()
 type instance XVar 'Checked = ()
@@ -314,6 +318,10 @@ pattern CForce t = Force () t
 
 pattern CUnfold :: CTerm -> Ident -> CTerm -> CTerm
 pattern CUnfold t x u = Unfold () t x u
+
+{-# COMPLETE CLet, CType, CVar, CPi, CSigma,
+   CLam, CPair, CEnum, CEnumLabel, CLift, CBox, CRec,
+   CFold, CApp, CSplit, CCase, CForce, CUnfold #-}
 
 type instance XLet 'KnownType = Closure CTerm
 type instance XType 'KnownType = Closure CTerm
@@ -389,6 +397,10 @@ pattern KForce kTy t = Force kTy t
 pattern KUnfold :: Closure CTerm -> KTerm -> Ident -> KTerm -> KTerm
 pattern KUnfold kTy t x u = Unfold kTy t x u
 
+{-# COMPLETE KLet, KType, KVar, KPi, KSigma,
+   KLam, KPair, KEnum, KEnumLabel, KLift, KBox, KRec,
+   KFold, KApp, KSplit, KCase, KForce, KUnfold #-}
+
 typeOf :: KTerm -> Closure CTerm
 typeOf (KLet ty _ _) = ty
 typeOf (KType ty) = ty
@@ -426,6 +438,8 @@ deriving instance Eq (Stmt 'KnownType)
 
 class Forget (f :: TermState -> *) (s :: TermState) (t :: TermState) where
   forget :: f s -> f t
+
+-- TODO: this instance lets you forget an Unchecked to a Checked
 
 instance (
     XTerm s ~ Void
