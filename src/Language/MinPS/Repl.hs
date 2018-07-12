@@ -94,8 +94,8 @@ replTypecheckStmt stmt = Repl $ do
       pure stmt'
     (Left e, _) -> throwError e
 
-replTypecheckTerm :: Term 'Unchecked
-                  -> Repl (Closure (Term 'Checked), Term 'Checked)
+replTypecheckTerm :: UTerm
+                  -> Repl (Closure (CTerm), CTerm)
 replTypecheckTerm term = Repl $ do
   env <- gets replEnv
   c <- gets replScope
@@ -113,7 +113,7 @@ replExecStmt stmt = do
   updateScope c'
   updateEnv env'
 
-replEvalTerm :: Term 'Checked -> Repl Value
+replEvalTerm :: CTerm -> Repl Value
 replEvalTerm term = do
   env <- gets replEnv
   c <- gets replScope
@@ -121,7 +121,7 @@ replEvalTerm term = do
   updateEnv env'
   pure v
 
-replNormalizeTerm :: Term 'Checked -> Repl (Term 'Checked)
+replNormalizeTerm :: CTerm -> Repl (CTerm)
 replNormalizeTerm term = do
   v <- replEvalTerm term
   env <- gets replEnv

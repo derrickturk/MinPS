@@ -72,7 +72,7 @@ labelTerm = char '\'' *> label
 
 -- TODO: the original allows syntax like (a b c d : Type)
 -- but I don't think I've ever seen them use it, and I don't care for it
-binder :: Parser (Ident, Term 'Unchecked)
+binder :: Parser (Ident, UTerm)
 binder = enclosed "(" ")" $ (,) <$> ident <*> (lexeme ":" *> term)
 
 stmt :: Parser (Stmt 'Unchecked)
@@ -86,58 +86,58 @@ stmt =  try (Declare <$> ident <*> (lexeme ":" *> term <* lexeme ";"))
 context :: Parser (Context 'Unchecked)
 context = some stmt
 
-branch :: Parser (Label, Term 'Unchecked)
+branch :: Parser (Label, UTerm)
 branch = (,) <$> label <*> (lexeme "->" *> term)
 
-atom :: Parser (Term 'Unchecked)
+atom :: Parser (UTerm)
 atom =  try (enclosed "(" ")" term)
-    <|> try (uncurry Pair <$>
+    <|> try (uncurry UPair <$>
           enclosed "(" ")" ((,) <$> term <*> (lexeme "," *> term)))
-    <|> try (Enum <$> enclosed "{" "}" (many label))
-    <|> try (EnumLabel <$> labelTerm)
-    <|> try (Case <$> ("case" *> space1 *> term)
+    <|> try (UEnum <$> enclosed "{" "}" (many label))
+    <|> try (UEnumLabel <$> labelTerm)
+    <|> try (UCase <$> ("case" *> space1 *> term)
                   <*> (lexeme "of" *>
                        enclosed "{" "}" (branch `sepBy` lexeme "|")))
-    <|> try (Box <$> enclosed "[" "]" term)
-    <|> try (Type <$ lexeme "Type")
-    <|> try (Var <$> ident)
+    <|> try (UBox <$> enclosed "[" "]" term)
+    <|> try (UType <$ lexeme "Type")
+    <|> try (UVar <$> ident)
 
-prefix :: Parser (Term 'Unchecked -> Term 'Unchecked)
-prefix =  try (Rec <$ lexeme "Rec")
-      <|> try (Fold <$ lexeme "fold")
-      <|> try (Lift <$ lexeme "^")
-      <|> try (Force <$ lexeme "!")
+prefix :: Parser (UTerm -> UTerm)
+prefix =  try (URec <$ lexeme "Rec")
+      <|> try (UFold <$ lexeme "fold")
+      <|> try (ULift <$ lexeme "^")
+      <|> try (UForce <$ lexeme "!")
       -- I am deliberately excluding prefix box operator Unicode sharp-sign
-      <|> (\t -> Unfold t "x" (Var "x")) <$ lexeme "unfold"
+      <|> (\t -> UUnfold t "x" (UVar "x")) <$ lexeme "unfold"
 
-appTerm :: Parser (Term 'Unchecked)
-appTerm = foldl App <$> (atom <|> prefix <*> atom) <*> many atom
+appTerm :: Parser (UTerm)
+appTerm = foldl UApp <$> (atom <|> prefix <*> atom) <*> many atom
 
-lambda :: Parser (Term 'Unchecked)
+lambda :: Parser (UTerm)
 lambda = do
   lexeme $ char '\\'
   idents <- some ident
   lexeme $ string "->"
   body <- term
-  pure $ foldr Lam body idents
+  pure $ foldr ULam body idents
 
-productTerm :: Parser (Term 'Unchecked)
-productTerm =  try (uncurry Sigma <$> binder <*> (lexeme "*" *> term))
-           <|> (foldl $ Sigma "_") <$> appTerm
+productTerm :: Parser (UTerm)
+productTerm =  try (uncurry USigma <$> binder <*> (lexeme "*" *> term))
+           <|> (foldl $ USigma "_") <$> appTerm
                                    <*> many (lexeme "*" *> productTerm)
 
-term :: Parser (Term 'Unchecked)
-term =  try (Let <$> ("let" *> space1 *> context) <*> ("in" *> space1 *> term))
+term :: Parser (UTerm)
+term =  try (ULet <$> ("let" *> space1 *> context) <*> ("in" *> space1 *> term))
     <|> try lambda
-    <|> try (Split <$> ("split" *> space1 *> term) <*>
+    <|> try (USplit <$> ("split" *> space1 *> term) <*>
                        (lexeme "with" *> lexeme "(" *> ident) <*>
                        (lexeme "," *> ident <* lexeme ")") <*>
                        (lexeme "->" *> term))
-    <|> try (Unfold <$> ("unfold" *> space1 *> term) <*>
+    <|> try (UUnfold <$> ("unfold" *> space1 *> term) <*>
                         ("as" *> space1 *> ident) <*>
                         (lexeme "->" *> term))
-    <|> try (uncurry Pi <$> binder <*> (lexeme "->" *> term)) 
-    <|> (foldl $ Pi "_") <$> productTerm <*> many (lexeme "->" *> term)
+    <|> try (uncurry UPi <$> binder <*> (lexeme "->" *> term)) 
+    <|> (foldl $ UPi "_") <$> productTerm <*> many (lexeme "->" *> term)
 
 replCommand :: Parser ReplCommand
 replCommand =  try ((ReplCmd . T.pack) <$> lexeme (char ':' *> some letterChar)

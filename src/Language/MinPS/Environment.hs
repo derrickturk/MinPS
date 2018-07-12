@@ -40,11 +40,11 @@ import qualified Data.Sequence as S
 --      checking
 data EnvEntry = EnvEntry { envName :: Ident
                            -- declared as a known type, or not
-                         , envType :: Maybe (Closure (Term 'Checked))
+                         , envType :: Maybe (Closure CTerm)
                            -- defined as a term, or pointed to an
                            --   environment slot (its own, by default, but the
                            --   equality checker will twiddle this)
-                         , envValue :: Either Int (Closure (Term 'Checked))
+                         , envValue :: Either Int (Closure CTerm)
                          } deriving Show
 
 data Constraints =
@@ -75,7 +75,7 @@ lookupE i e = S.lookup i $ getEnv e
 
 declareE :: MonadState Env m
          => Ident
-         -> Maybe (Closure (Term 'Checked))
+         -> Maybe (Closure CTerm)
          -> m Int
 declareE x ty = do
   env <- gets getEnv
@@ -83,7 +83,7 @@ declareE x ty = do
   modify $ setEnv (env S.:|> EnvEntry x ty (Left next))
   pure next
 
-defineE :: MonadState Env m => Int -> Closure (Term 'Checked) -> m ()
+defineE :: MonadState Env m => Int -> Closure CTerm -> m ()
 defineE i t = do
   env <- gets getEnv
   modify $ setEnv (S.adjust' (install t) i env)

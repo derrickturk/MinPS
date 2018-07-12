@@ -24,43 +24,43 @@ import Control.Monad.Except
 import qualified Data.Set as Set
 
 data TypeError =
-    Mismatch (Term 'Checked) (Term 'Checked)
-  | ExpectedGotLambda (Term 'Checked)
-  | ExpectedGotPair (Term 'Checked)
-  | ExpectedGotLabel Label (Term 'Checked)
-  | ExpectedPiType (Term 'Checked)
-  | ExpectedSigmaType (Term 'Checked)
-  | ExpectedEnumType (Term 'Checked)
-  | ExpectedLiftedType (Term 'Checked)
-  | ExpectedRecType (Term 'Checked)
+    Mismatch (CTerm) (CTerm)
+  | ExpectedGotLambda (CTerm)
+  | ExpectedGotPair (CTerm)
+  | ExpectedGotLabel Label (CTerm)
+  | ExpectedPiType (CTerm)
+  | ExpectedSigmaType (CTerm)
+  | ExpectedEnumType (CTerm)
+  | ExpectedLiftedType (CTerm)
+  | ExpectedRecType (CTerm)
   | Undeclared Ident
   | Undefined Ident
   | DuplicateDeclare Ident
   | DuplicateDefine Ident
   | DuplicateLabel Label
   | LabelsMismatch [Label] [Label]
-  | NotInferable (Closure (Term 'Unchecked))
+  | NotInferable (Closure (UTerm))
   deriving Show
 
 check :: (MonadState Env m, MonadError TypeError m)
-      => Term 'Unchecked
-      -> Closure (Term 'Checked)
-      -> m (Term 'Checked)
+      => UTerm
+      -> Closure (CTerm)
+      -> m (CTerm)
 check t = check' $ emptyC t
 
 check' :: (MonadState Env m, MonadError TypeError m)
-       => Closure (Term 'Unchecked)
-       -> Closure (Term 'Checked)
-       -> m (Term 'Checked)
+       => Closure (UTerm)
+       -> Closure (CTerm)
+       -> m (CTerm)
 
 -- as in the original, we "first handle the cases that may potentially
 -- change the environment". I am not 100% sure this split is necessary.
-check' (Let ctxt t :@ c) ty = do
+check' (ULet ctxt t :@ c) ty = do
   (ctxt' :@ c') <- checkContext (ctxt :@ c)
   t' <- check' (t :@ c') ty
-  pure $ Let ctxt' t'
+  pure $ CLet ctxt' t'
 
-check' (Split t x y u :@ c) ty
+check' (USplit t x y u :@ c) ty
   | x == y = throwError $ DuplicateDeclare y
   | otherwise = do
       (ty', t') <- infer (t :@ c)
@@ -73,13 +73,13 @@ check' (Split t x y u :@ c) ty
           let c' = (y, j):(x, i):c
           u' <- case tV of
             VNeutral (NVar k) -> locally $ do
-              defineE k (Pair (Var x) (Var y) :@ c')
+              defineE k (CPair (CVar x) (CVar y) :@ c')
               check' (u :@ c') ty
             _ -> check' (u :@ c') ty
-          pure $ Split t' x y u'
+          pure $ CSplit t' x y u'
         _ -> throwError =<< ExpectedSigmaType <$> normalize tyV
 
-check' (Case t cases :@ c) ty = do
+check' (UCase t cases :@ c) ty = do
   (ty', t') <- infer (t :@ c)
   tyV <- eval' ty'
   case tyV of
@@ -88,29 +88,29 @@ check' (Case t cases :@ c) ty = do
         then throwError $ LabelsMismatch lbls' lbls
         else do
           cases' <- mapM checkCase cases
-          pure $ Case t' (zip lbls' cases')
+          pure $ CCase t' (zip lbls' cases')
           where
             checkCase (l, u) = withConstraint (t' :@ c) l (check' (u :@ c) ty)
     _ -> throwError =<< ExpectedEnumType <$> normalize tyV
 
-check' (Force t :@ c) (ty :@ d) = do
-  t' <- check' (t :@ c) (Lift ty :@ d)
-  pure $ Force t'
+check' (UForce t :@ c) (ty :@ d) = do
+  t' <- check' (t :@ c) (ULift ty :@ d)
+  pure $ CForce t'
 
-check' (Unfold t x u :@ c) ty = do
+check' (UUnfold t x u :@ c) ty = do
   (ty', t') <- infer (t :@ c)
   tyV <- eval' ty'
   case tyV of
     VRec (a :@ d) -> do
       tV <- eval' (t' :@ c)
-      i <- declareE x (Just (Force a :@ d))
+      i <- declareE x (Just (CForce a :@ d))
       let c' = (x, i):c
       u' <- case tV of
         VNeutral (NVar k) -> locally $ do
-          defineE k (Fold (Var x) :@ c')
+          defineE k (CFold (CVar x) :@ c')
           check' (u :@ c') ty
         _ -> check' (u :@ c') ty
-      pure $ Unfold t' x u'
+      pure $ CUnfold t' x u'
     _ -> throwError =<< ExpectedRecType <$> normalize tyV
 
 -- the default case
@@ -118,41 +118,41 @@ check' t ty = do
   eval' ty >>= checkValue t
 
 checkValue :: (MonadState Env m, MonadError TypeError m)
-           => Closure (Term 'Unchecked)
+           => Closure (UTerm)
            -> Value
-           -> m (Term 'Checked)
+           -> m (CTerm)
 
 -- some cases can't be inferred...
-checkValue (Lam x t :@ c) (VPi y ((ty, u) :@ d)) = do
+checkValue (ULam x t :@ c) (VPi y ((ty, u) :@ d)) = do
   i <- declareE x (Just (ty :@ d))
   t' <- check' (t :@ (x, i):c) (u :@ (y, i):d)
-  pure $ Lam x t'
-checkValue (Lam _ _ :@ _) v = throwError =<< ExpectedGotLambda <$> normalize v
+  pure $ CLam x t'
+checkValue (ULam _ _ :@ _) v = throwError =<< ExpectedGotLambda <$> normalize v
 
-checkValue (Pair t u :@ c) (VSigma x ((a, b) :@ d)) = do
+checkValue (UPair t u :@ c) (VSigma x ((a, b) :@ d)) = do
   t' <- check' (t :@ c) (a :@ d)
   i <- declareE x Nothing
   defineE i (t' :@ c)
   u' <- check' (u :@ c) (b :@ (x, i):d)
-  pure $ Pair t' u'
-checkValue (Pair _ _ :@ _) v = throwError =<< ExpectedGotPair <$> normalize v
+  pure $ CPair t' u'
+checkValue (UPair _ _ :@ _) v = throwError =<< ExpectedGotPair <$> normalize v
 
-checkValue (EnumLabel l :@ _) (VEnum lbls)
-  | l `elem` lbls = pure $ EnumLabel l
-checkValue (EnumLabel l :@ _) v =
+checkValue (UEnumLabel l :@ _) (VEnum lbls)
+  | l `elem` lbls = pure $ CEnumLabel l
+checkValue (CEnumLabel l :@ _) v =
   throwError =<< ExpectedGotLabel <$> pure l <*> normalize v
 
 -- these rules are copied from the original and I do not 100%
 --   understand their absence of other cases
 
-checkValue (Box t :@ c) (VLift ty) = do
+checkValue (UBox t :@ c) (VLift ty) = do
   t' <- check' (t :@ c) ty
-  pure $ Box t'
+  pure $ CBox t'
 
-checkValue (Fold t :@ c) (VRec (ty :@ d)) = do
-  forceTyV <- eval' (Force ty :@ d)
+checkValue (UFold t :@ c) (VRec (ty :@ d)) = do
+  forceTyV <- eval' (CForce ty :@ d)
   t' <- checkValue (t :@ c) forceTyV
-  pure $ Fold t'
+  pure $ CFold t'
 
 -- ... the rest can
 checkValue t v = do 
@@ -164,55 +164,55 @@ checkValue t v = do
     else throwError =<< Mismatch <$> normalize v <*> normalize v'
 
 infer :: (MonadState Env m, MonadError TypeError m)
-      => Closure (Term 'Unchecked) -- the term
-      -> m (Closure (Term 'Checked), Term 'Checked) -- the type + closure & the term
+      => Closure (UTerm) -- the term
+      -> m (Closure (CTerm), CTerm) -- the type + closure & the term
 
-infer (Let ctxt t :@ c) = do
+infer (ULet ctxt t :@ c) = do
   (ctxt' :@ c') <- checkContext (ctxt :@ c)
   (ty, t') <- infer (t :@ c')
-  pure (ty, Let ctxt' t')
+  pure (ty, CLet ctxt' t')
 
-infer (Type :@ _) = pure (emptyC Type, Type)
+infer (UType :@ _) = pure (emptyC CType, CType)
 
-infer (Var x :@ c) = gets (lookupSE x c) >>= \case
-  Just (EnvEntry _ (Just ty) _, _) -> pure (ty, Var x)
+infer (UVar x :@ c) = gets (lookupSE x c) >>= \case
+  Just (EnvEntry _ (Just ty) _, _) -> pure (ty, CVar x)
   _ -> throwError $ Undeclared x
 
-infer (Pi x ty t :@ c) = do
-  ty' <- check' (ty :@ c) (emptyC Type)
+infer (UPi x ty t :@ c) = do
+  ty' <- check' (ty :@ c) (emptyC CType)
   i <- declareE x $ Just (ty' :@ c)
-  t' <- check' (t :@ (x, i):c) (emptyC Type)
-  pure (emptyC Type, Pi x ty' t')
+  t' <- check' (t :@ (x, i):c) (emptyC CType)
+  pure (emptyC CType, CPi x ty' t')
 
-infer (Sigma x ty t :@ c) = do
-  ty' <- check' (ty :@ c) (emptyC Type)
+infer (USigma x ty t :@ c) = do
+  ty' <- check' (ty :@ c) (emptyC CType)
   i <- declareE x $ Just (ty' :@ c)
-  t' <- check' (t :@ (x, i):c) (emptyC Type)
-  pure (emptyC Type, Sigma x ty' t')
+  t' <- check' (t :@ (x, i):c) (emptyC CType)
+  pure (emptyC CType, CSigma x ty' t')
 
-infer (Enum lbls :@ _) = go Set.empty lbls where
-  go _ [] = pure (emptyC Type, Enum lbls)
+infer (UEnum lbls :@ _) = go Set.empty lbls where
+  go _ [] = pure (emptyC CType, CEnum lbls)
   go seen (l:ls) = if Set.member l seen
     then throwError $ DuplicateLabel l
     else go (Set.insert l seen) ls
 
-infer (Lift t :@ c) = do
-  t' <- check' (t :@ c) (emptyC Type)
-  pure (emptyC Type, Lift t')
+infer (ULift t :@ c) = do
+  t' <- check' (t :@ c) (emptyC CType)
+  pure (emptyC CType, CLift t')
 
-infer (Box t :@ c) = do
+infer (UBox t :@ c) = do
   (ty :@ c', t') <- infer (t :@ c)
-  pure (Lift ty :@ c', Box t')
+  pure (CLift ty :@ c', CBox t')
 
-infer (Rec t :@ c) = do
-  t' <- check' (t :@ c) (emptyC $ Lift Type)
-  pure (emptyC Type, Rec t')
+infer (URec t :@ c) = do
+  t' <- check' (t :@ c) (emptyC $ CLift CType)
+  pure (emptyC CType, CRec t')
 
-infer (Fold t :@ c) = do
+infer (UFold t :@ c) = do
   (ty :@ c', t') <- infer (t :@ c)
-  pure (Rec (Box ty) :@ c', Fold t')
+  pure (CRec (CBox ty) :@ c', CFold t')
 
-infer (App f t :@ c) = do
+infer (UApp f t :@ c) = do
   (fTy, f') <- infer (f :@ c)
   fTyV <- eval' fTy
   case fTyV of
@@ -220,34 +220,34 @@ infer (App f t :@ c) = do
       t' <- check' (t :@ c) (piArgTy :@ d)
       i <- declareE x Nothing
       defineE i (t' :@ c)
-      pure (pyResTy :@ (x, i):d, App f' t')
+      pure (pyResTy :@ (x, i):d, CApp f' t')
     _ -> throwError =<< ExpectedPiType <$> normalize fTyV
 
-infer (Force t :@ c) = do
+infer (UForce t :@ c) = do
   (ty, t') <- infer (t :@ c)
   tyV <- eval' ty
   case tyV of
-    VLift tyBase -> pure (tyBase, Force t')
+    VLift tyBase -> pure (tyBase, CForce t')
     _ -> throwError =<< ExpectedLiftedType <$> normalize tyV
 
 -- handle non-inferable cases
 infer t = throwError $ NotInferable t
 
 runCheck :: Env
-         -> Term 'Unchecked
-         -> Closure (Term 'Checked)
-         -> Either TypeError (Term 'Checked)
+         -> UTerm
+         -> Closure (CTerm)
+         -> Either TypeError (CTerm)
 runCheck e t ty = evalState (runExceptT $ check t ty) e
 
 runCheck' :: Env
-          -> Closure (Term 'Unchecked)
-          -> Closure (Term 'Checked)
-          -> Either TypeError (Term 'Checked)
+          -> Closure (UTerm)
+          -> Closure (CTerm)
+          -> Either TypeError (CTerm)
 runCheck' e t ty = evalState (runExceptT $ check' t ty) e
 
 runInfer :: Env
-         -> Closure (Term 'Unchecked)
-         -> Either TypeError (Closure (Term 'Checked), Term 'Checked)
+         -> Closure (UTerm)
+         -> Either TypeError (Closure (CTerm), CTerm)
 runInfer e t = evalState (runExceptT $ infer t) e
 
 checkStmt :: (MonadState Env m, MonadError TypeError m)
@@ -258,7 +258,7 @@ checkStmt :: (MonadState Env m, MonadError TypeError m)
 checkStmt (Declare x ty :@ c) decls defns = if Set.member x decls
   then throwError $ DuplicateDeclare x
   else do
-    ty' <- check' (ty :@ c) (emptyC Type)
+    ty' <- check' (ty :@ c) (emptyC CType)
     i <- declareE x (Just (ty' :@ c))
     pure (Declare x ty' :@ (x, i):c, Set.insert x decls, defns)
 checkStmt (Define x t :@ c) decls defns = if Set.member x defns

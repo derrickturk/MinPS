@@ -26,33 +26,34 @@ instance Pretty (Stmt a) where
   pretty (DeclareDefine x ty t) = pretty x <> ": " <> pretty ty
     <> " = " <> pretty t <> ";\n"
 
-instance Pretty (Term a) where
-  pretty (Let ctxt t) = "let " <> foldMap pretty ctxt <> "in " <> pretty t
-  pretty (Type) = "Type"
-  pretty (Var x) = pretty x
-  pretty (Pi x ty t) = if x == "_"
+instance Pretty (TermX a) where
+  pretty (Let _ ctxt t) = "let " <> foldMap pretty ctxt <> "in " <> pretty t
+  pretty (Type _) = "Type"
+  pretty (Var _ x) = pretty x
+  pretty (Pi _ x ty t) = if x == "_"
     then pretty ty <> " -> " <> pretty t
     else "(" <> pretty x <> ": " <> pretty ty <> ") -> " <> pretty t
-  pretty (Sigma x ty t) = if x == "_"
+  pretty (Sigma _ x ty t) = if x == "_"
     then pretty ty <> " * " <> pretty t
     else "(" <> pretty x <> ": " <> pretty ty <> ") * " <> pretty t
-  pretty (Lam x t) = "\\" <> pretty x <> " -> " <> pretty t
-  pretty (Pair x y) = "(" <> pretty x <> ", " <> pretty y <> ")"
-  pretty (Enum lbls) = "{" <> T.intercalate ", " (pretty <$> lbls) <> "}"
-  pretty (EnumLabel l) = T.cons '\'' (pretty l)
-  pretty (Lift t) = "^(" <> pretty t <> ")"
-  pretty (Box t) = "[" <> pretty t <> "]"
-  pretty (Rec t) = "Rec (" <> pretty t <> ")"
-  pretty (Fold t) = "fold (" <> pretty t <> ")"
-  pretty (App f t) = "(" <> pretty f <> ") (" <> pretty t <> ")"
-  pretty (Split t x y u) = "split " <> pretty t <> " with ("
+  pretty (Lam _ x t) = "\\" <> pretty x <> " -> " <> pretty t
+  pretty (Pair _ x y) = "(" <> pretty x <> ", " <> pretty y <> ")"
+  pretty (Enum _ lbls) = "{" <> T.intercalate ", " (pretty <$> lbls) <> "}"
+  pretty (EnumLabel _ l) = T.cons '\'' (pretty l)
+  pretty (Lift _ t) = "^(" <> pretty t <> ")"
+  pretty (Box _ t) = "[" <> pretty t <> "]"
+  pretty (Rec _ t) = "Rec (" <> pretty t <> ")"
+  pretty (Fold _ t) = "fold (" <> pretty t <> ")"
+  pretty (App _ f t) = "(" <> pretty f <> ") (" <> pretty t <> ")"
+  pretty (Split _ t x y u) = "split " <> pretty t <> " with ("
     <> pretty x <> ", " <> pretty y <> ") -> " <> pretty u
-  pretty (Case t cases) = "case " <> pretty t <> " of {\n    "
+  pretty (Case _ t cases) = "case " <> pretty t <> " of {\n    "
    <> T.intercalate "\n  | " (prettyCase <$> cases) <> "\n}" where
      prettyCase (l, u) = pretty l <> " -> " <> pretty u
-  pretty (Force t) = T.cons '!' (pretty t)
-  pretty (Unfold t x u) = "unfold " <> pretty t <> " as " <> pretty x
+  pretty (Force _ t) = T.cons '!' (pretty t)
+  pretty (Unfold _ t x u) = "unfold " <> pretty t <> " as " <> pretty x
     <> " -> " <> pretty u
+  pretty (TermX _) = "<extension term>"
 
 instance Pretty TypeError where
   pretty (Mismatch ex got) = "type mismatch:\n\texpected " <> pretty ex
@@ -72,6 +73,6 @@ instance Pretty TypeError where
   pretty (DuplicateDefine (MkIdent x)) = "duplicate definitions for " <> x
   pretty (DuplicateLabel (MkLabel l)) = "duplicate label " <> l
   pretty (LabelsMismatch ex got) = "labels mismatch; expected "
-    <> pretty (Enum ex)
-    <> ", got " <> pretty (Enum got)
+    <> pretty (UEnum ex :: UTerm)
+    <> ", got " <> pretty (UEnum got :: UTerm)
   pretty (NotInferable (t :@ _)) = "not inferable: " <> pretty t

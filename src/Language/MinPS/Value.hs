@@ -10,24 +10,24 @@ import Language.MinPS.Closure
 
 data Value =
     VType
-  | VPi Ident (Closure (Term 'Checked, Term 'Checked))
-  | VSigma Ident (Closure (Term 'Checked, Term 'Checked))
-  | VLam Ident (Closure (Term 'Checked))
-  | VPair (Closure (Term 'Checked, Term 'Checked))
+  | VPi Ident (Closure (CTerm, CTerm))
+  | VSigma Ident (Closure (CTerm, CTerm))
+  | VLam Ident (Closure (CTerm))
+  | VPair (Closure (CTerm, CTerm))
   | VEnum [Label]
   | VEnumLabel Label
-  | VLift (Closure (Term 'Checked))
-  | VBox (Closure (Term 'Checked))
-  | VRec (Closure (Term 'Checked))
-  | VFold (Closure (Term 'Checked))
+  | VLift (Closure (CTerm))
+  | VBox (Closure (CTerm))
+  | VRec (Closure (CTerm))
+  | VFold (Closure (CTerm))
   | VNeutral Neutral
   deriving (Show, Eq)
 
 data Neutral =
     NVar Int
-  | NApp Neutral (Closure (Term 'Checked))
-  | NSplit Neutral Ident Ident (Closure (Term 'Checked))
-  | NCase Neutral (Closure [(Label, Term 'Checked)])
+  | NApp Neutral (Closure (CTerm))
+  | NSplit Neutral Ident Ident (Closure (CTerm))
+  | NCase Neutral (Closure [(Label, CTerm)])
   | NForce Neutral
-  | NUnfold Neutral Ident (Closure (Term 'Checked))
+  | NUnfold Neutral Ident (Closure (CTerm))
   deriving (Show, Eq)
