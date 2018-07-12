@@ -5,8 +5,10 @@
 
 module Language.MinPS.Repl (
     ReplState(..)
+  , ReplSettings(..)
   , Repl
   , initialState
+  , initialSettings
   , runRepl
   , evalRepl
   , execRepl
@@ -14,7 +16,10 @@ module Language.MinPS.Repl (
   , replTypecheckStmt
   , replTypecheckTerm
   , replExecStmt
+  , replEvalClosure
+  , replNormalizeClosure
   , replEvalTerm
+  , replNormalizeTerm
   , replLine
   , replLoop
   , replPutStr
@@ -52,7 +57,11 @@ data ReplState = ReplState { replScope :: Scope
                            , replEnv :: Env
                            , replDecls :: Set.Set Ident
                            , replDefns :: Set.Set Ident
+                           , replSettings :: ReplSettings
                            } deriving Show
+
+data ReplSettings = ReplSettings { showTypes :: Bool
+                                 } deriving Show
 
 newtype Repl a = Repl { getRepl :: ExceptT TypeError (StateT ReplState IO) a }
   deriving (
@@ -64,8 +73,11 @@ newtype Repl a = Repl { getRepl :: ExceptT TypeError (StateT ReplState IO) a }
     , MonadIO
   )
 
+initialSettings :: ReplSettings
+initialSettings = ReplSettings False
+
 initialState :: ReplState
-initialState = ReplState emptyS emptyE Set.empty Set.empty
+initialState = ReplState emptyS emptyE Set.empty Set.empty initialSettings
 
 runRepl :: Repl a -> ReplState -> IO (Either TypeError a, ReplState)
 runRepl (Repl r) s = runStateT (runExceptT r) s
@@ -85,12 +97,15 @@ updateScope s = modify (\r -> r { replScope = s })
 updateEnv :: Env -> Repl ()
 updateEnv e = modify (\r -> r { replEnv = e })
 
+updateSettings :: ReplSettings -> Repl ()
+updateSettings s = modify (\r -> r { replSettings = s })
+
 replTypecheckStmt :: Stmt 'Unchecked -> Repl (Stmt 'KnownType)
 replTypecheckStmt stmt = Repl $ do
-  ReplState c env decls defns <- get
+  ReplState c env decls defns settings <- get
   case runState (runExceptT $ checkStmt (stmt :@ c) decls defns) env of
     (Right (stmt' :@ c', decls', defns'), env') -> do
-      put $ ReplState c' env' decls' defns'
+      put $ ReplState c' env' decls' defns' settings
       pure stmt'
     (Left e, _) -> throwError e
 
@@ -112,21 +127,30 @@ replExecStmt stmt = do
   updateScope c'
   updateEnv env'
 
-replEvalTerm :: CTerm -> Repl Value
-replEvalTerm term = do
+replEvalClosure :: Closure CTerm -> Repl Value
+replEvalClosure termC = do
   env <- gets replEnv
-  c <- gets replScope
-  let (v, env') = runState (eval' (term :@ c)) env
+  let (v, env') = runState (eval' termC) env
   updateEnv env'
   pure v
 
-replNormalizeTerm :: CTerm -> Repl (CTerm)
-replNormalizeTerm term = do
-  v <- replEvalTerm term
+replNormalizeClosure :: Closure CTerm -> Repl (CTerm)
+replNormalizeClosure termC = do
+  v <- replEvalClosure termC
   env <- gets replEnv
   let (n, env') = runState (normalize v) env
   updateEnv env'
   pure n
+
+replEvalTerm :: CTerm -> Repl Value
+replEvalTerm term = do
+  c <- gets replScope
+  replEvalClosure (term :@ c)
+
+replNormalizeTerm :: CTerm -> Repl (CTerm)
+replNormalizeTerm term = do
+  c <- gets replScope
+  replNormalizeClosure (term :@ c)
 
 replPutStr :: String -> Repl ()
 replPutStr = liftIO . putStr
@@ -163,14 +187,11 @@ replLine = do
         n <- replNormalizeTerm (forget term')
         replPutTextLn $ pretty n
 
-        {- this would be more useful if it normalized
-        let ty :@ c = typeOf term'
-        replPutText " : "
-        replPutText $ pretty ty
-        replPutText " w/ "
-        replPrint c
-        -}
-
+        showTy <- gets (showTypes . replSettings)
+        when showTy $ do
+          nTy <- replNormalizeClosure (typeOf term')
+          replPutText " : "
+          replPutTextLn $ pretty nTy
       `catchError` replHandleTypeError
     Right (ReplExec stmt) -> do
       do
@@ -224,6 +245,10 @@ replCmds = [ ("quit", const quit)
            , ("c", const replClear)
            , ("fuel", replSetFuel)
            , ("f", replSetFuel)
+           , ("showtypes", replSetShowTypes True)
+           , ("st", replSetShowTypes True)
+           , ("noshowtypes", replSetShowTypes False)
+           , ("nst", replSetShowTypes False)
            ] where
   quit = replPutStrLn "" >> liftIO exitSuccess
   replSetFuel (Just t)
@@ -234,3 +259,6 @@ replCmds = [ ("quit", const quit)
         env <- gets replEnv
         updateEnv (setFuel (fuel n) env)
   replSetFuel _ = replPutStrLn "Usage: :fuel count"
+  replSetShowTypes b _ = do
+    s <- gets replSettings
+    updateSettings (s { showTypes = b })
