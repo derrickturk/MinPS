@@ -33,6 +33,7 @@ module Language.MinPS.Annotate (
 
 import Control.Monad.State
 import Data.Void
+import Data.List (elemIndex)
 import qualified Data.Map as M
 
 import Language.MinPS.Syntax
@@ -66,6 +67,7 @@ data Rewrite =
   | SatApp Saturation ATerm ATerm -- rewrite nested application
 
 -- dunno what to do with pairs yet
+-- TODO: erasure annotation (e.g. Type)
 
 type instance XLet 'Annotated = ()
 type instance XType 'Annotated = ()
@@ -149,21 +151,43 @@ annotate :: MonadState Env m => KTerm -> m ATerm
 annotate = annotate' []
 
 annotate' :: MonadState Env m => [Ident] -> KTerm -> m ATerm
-annotate' = undefined
+annotate' s (KLet _ ctxt t) = do
+  (s', ctxt') <- annotateContext s ctxt
+  t' <- annotate' s' t
+  pure $ ALet ctxt' t'
+
+annotate' _ (KType _) = pure AType
+
+annotate' s (KVar _ v) = case elemIndex v s of
+  Just i -> pure $ AVar i v
+  _ -> error "internal error: unbound var in annotation"
+
+-- TODO: these should probably just end up erased 
+annotate' s py@(KPi _ x ty t) = do
+  let arity = piArity (forget py)
+  ty' <- annotate' s ty
+  t' <- annotate' (x:s) t
+  pure $ APi arity x ty' t'
+
+annotate' s sig@(KSigma _ x t u) = do
+  let arity = sigmaArity (forget sig)
+  t' <- annotate' s t
+  u' <- annotate' (x:s) u
+  pure $ ASigma arity x t' u'
 
 annotateStmt :: MonadState Env m
              => [Ident]
              -> Stmt 'KnownType
              -> m ([Ident], Stmt 'Annotated)
-annotateStmt c (Declare x ty) = annotate' c ty >>= \ty' ->
-  pure (x:c, Declare x ty')
-annotateStmt c (Define x t) = annotate' c t >>= \t' ->
-  pure (c, Define x t')
-annotateStmt c (DeclareDefine x ty t) = do
-  ty' <- annotate' c ty
-  let c' = (x:c)
-  t' <- annotate' c' t
-  pure (c', DeclareDefine x ty' t')
+annotateStmt s (Declare x ty) = annotate' s ty >>= \ty' ->
+  pure (x:s, Declare x ty')
+annotateStmt s (Define x t) = annotate' s t >>= \t' ->
+  pure (s, Define x t')
+annotateStmt s (DeclareDefine x ty t) = do
+  ty' <- annotate' s ty
+  let s' = (x:s)
+  t' <- annotate' s' t
+  pure (s', DeclareDefine x ty' t')
 
 annotateContext :: MonadState Env m
                 => [Ident]
@@ -174,3 +198,11 @@ annotateContext s (stmt:rest) = do
   (s', stmt') <- annotateStmt s stmt
   (s'', rest') <- annotateContext s' rest
   pure (s'', stmt':rest')
+
+piArity :: CTerm -> Arity
+piArity (CPi x _ r) = AS x (piArity r)
+piArity _ = AZ
+
+sigmaArity :: CTerm -> Arity
+sigmaArity (CSigma x _ r) = AS x (sigmaArity r)
+sigmaArity _ = AZ
