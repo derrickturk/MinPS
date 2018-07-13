@@ -1,11 +1,12 @@
 {-# LANGUAGE GADTs, DataKinds, MultiParamTypeClasses, FlexibleContexts #-}
-{-# LANGUAGE TypeFamilies, PatternSynonyms #-}
+{-# LANGUAGE LambdaCase, TypeFamilies, PatternSynonyms #-}
 
 module Language.MinPS.Annotate (
     ATerm
   , Arity(..)
-  , EnumRepr(..)
-  , LabelRepr
+  , EnumRepr
+  , LabelRepr(..)
+  , LabelMap
   , Saturation(..)
   , annotate
   , annotate'
@@ -39,6 +40,7 @@ import qualified Data.Map as M
 import Language.MinPS.Syntax
 import Language.MinPS.Environment
 import Language.MinPS.Eval
+import Language.MinPS.Value
 import Language.JS.Syntax
 
 type ATerm = TermX 'Annotated
@@ -48,14 +50,16 @@ data Arity =
   | AS Ident Arity
   deriving (Eq, Show)
 
-data EnumRepr =
+data LabelRepr =
     VoidRepr
   | UnitRepr
   | BoolRepr
   | IntRepr
   deriving (Eq, Show)
 
-type LabelRepr = M.Map Label JSExpr
+type LabelMap = M.Map Label JSExpr
+
+type EnumRepr = (LabelRepr, LabelMap)
 
 data Saturation =
     Saturated
@@ -76,15 +80,15 @@ type instance XPi 'Annotated = Arity
 type instance XSigma 'Annotated = Arity -- let's do it and see what happens
 type instance XLam 'Annotated = Void -- must be rewritted to PolyLams
 type instance XPair 'Annotated = ()
-type instance XEnum 'Annotated = (EnumRepr, LabelRepr)
-type instance XEnumLabel 'Annotated = (EnumRepr, LabelRepr)
+type instance XEnum 'Annotated = EnumRepr
+type instance XEnumLabel 'Annotated = EnumRepr
 type instance XLift 'Annotated = ()
 type instance XBox 'Annotated = ()
 type instance XRec 'Annotated = ()
 type instance XFold 'Annotated = ()
 type instance XApp 'Annotated = Void -- these must be rewritted to SatApps
 type instance XSplit 'Annotated = ()
-type instance XCase 'Annotated = (EnumRepr, LabelRepr)
+type instance XCase 'Annotated = EnumRepr
 type instance XForce 'Annotated = ()
 type instance XUnfold 'Annotated = () -- might distinguish unfold which create new bindings from those that shadow
 type instance XTerm 'Annotated = Rewrite
@@ -107,11 +111,11 @@ pattern ASigma a x ty t = Sigma a x ty t
 pattern APair :: ATerm -> ATerm -> ATerm
 pattern APair t u = Pair () t u
 
-pattern AEnum :: EnumRepr -> LabelRepr -> [Label] -> ATerm
-pattern AEnum erep lrep lbls = Enum (erep, lrep) lbls
+pattern AEnum :: EnumRepr -> [Label] -> ATerm
+pattern AEnum erep lbls = Enum erep lbls
 
-pattern AEnumLabel :: EnumRepr -> LabelRepr -> Label -> ATerm
-pattern AEnumLabel erep lrep l = EnumLabel (erep, lrep) l
+pattern AEnumLabel :: EnumRepr -> Label -> ATerm
+pattern AEnumLabel erep l = EnumLabel erep l
 
 pattern ALift :: ATerm -> ATerm
 pattern ALift ty = Lift () ty
@@ -128,8 +132,8 @@ pattern AFold t = Fold () t
 pattern ASplit :: ATerm -> Ident -> Ident -> ATerm -> ATerm
 pattern ASplit t x y u = Split () t x y u
 
-pattern ACase :: EnumRepr -> LabelRepr -> ATerm -> [(Label, ATerm)] -> ATerm
-pattern ACase erep lrep t cases = Case (erep, lrep) t cases
+pattern ACase :: EnumRepr -> ATerm -> [(Label, ATerm)] -> ATerm
+pattern ACase erep t cases = Case erep t cases
 
 pattern AForce :: ATerm -> ATerm
 pattern AForce t = Force () t
@@ -178,6 +182,20 @@ annotate' s sig@(KSigma _ x t u) = do
 annotate' s lam@(KLam _ _ _) = foldLam s lam >>= \(a, body)
   -> pure (APolyLam a body)
 
+annotate' _ (KEnum _ lbls) = pure $ AEnum (enumRepr lbls) lbls
+
+-- TODO: raw, eval, or normalize here?
+annotate' _ (KEnumLabel ty l) = eval' ty >>= \case
+  VEnum lbls -> pure $ AEnumLabel (enumRepr lbls) l
+  _ -> error "internal error: expected enum type"
+
+annotate' s (KLift _ t) = ALift <$> annotate' s t
+annotate' s (KBox _ t) = ABox <$> annotate' s t
+annotate' s (KFold _ t) = AFold <$> annotate' s t
+
+-- TODO: left off here for vacation
+-- SatApps; this is where the fun begins
+
 annotateStmt :: MonadState Env m
              => [Ident]
              -> Stmt 'KnownType
@@ -215,3 +233,10 @@ foldLam s (KLam _ x body) = do
   (a, result) <- foldLam (x:s) body
   pure (AS x a, result)
 foldLam s t = (,) <$> pure AZ <*> annotate' s t
+
+enumRepr :: [Label] -> EnumRepr
+enumRepr [] = (VoidRepr, M.empty)
+enumRepr [unit] = (UnitRepr, M.singleton unit JSNull)
+enumRepr [false, true] =
+  (BoolRepr, M.fromList [(false, JSBool False), (true, JSBool True)])
+enumRepr ls = (IntRepr, M.fromList (zip ls (JSInt <$> [0..])))
