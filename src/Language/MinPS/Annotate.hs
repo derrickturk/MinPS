@@ -175,6 +175,9 @@ annotate' s sig@(KSigma _ x t u) = do
   u' <- annotate' (x:s) u
   pure $ ASigma arity x t' u'
 
+annotate' s lam@(KLam _ _ _) = foldLam s lam >>= \(a, body)
+  -> pure (APolyLam a body)
+
 annotateStmt :: MonadState Env m
              => [Ident]
              -> Stmt 'KnownType
@@ -206,3 +209,9 @@ piArity _ = AZ
 sigmaArity :: CTerm -> Arity
 sigmaArity (CSigma x _ r) = AS x (sigmaArity r)
 sigmaArity _ = AZ
+
+foldLam :: MonadState Env m => [Ident] -> KTerm -> m (Arity, ATerm)
+foldLam s (KLam _ x body) = do
+  (a, result) <- foldLam (x:s) body
+  pure (AS x a, result)
+foldLam s t = (,) <$> pure AZ <*> annotate' s t
