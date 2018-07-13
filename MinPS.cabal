@@ -33,5 +33,7 @@ executable MinPS
                      , Language.MinPS.Pretty
                      , Language.MinPS.Repl
                      , Language.JS.Syntax
+                     , Language.MinPS.Annotate
+                     , Language.MinPS.Compile
                      , Data.Fuel
   ghc-options:         -Wall -O2 -fno-warn-unused-do-bind

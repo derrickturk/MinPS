@@ -104,6 +104,7 @@ import Language.MinPS.Closure
 data TermState = Unchecked
                | Checked
                | KnownType
+               | Annotated
                deriving Show
 
 newtype Label = MkLabel { getLabel :: T.Text }
