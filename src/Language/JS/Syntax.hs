@@ -162,6 +162,6 @@ emitBinOp JSAnd = " && "
 emitBinOp JSOr = " || "
 
 emitCase :: Int -> Int -> (JSExpr, [JSStmt]) -> T.Text
-emitCase o i (e, body) = emit' o i e <> ": \n"
+emitCase o i (e, body) = indent o <> "case " <> emit' 0 i e <> ": \n"
   <> sepMap "\n" (emit' i (i + 1)) body
-  <> indent i <> "break;\n"
+  <> "\n" <> indent i <> "break;\n"
