@@ -111,7 +111,7 @@ instance Emit JSExpr where
   emit' o i e = indent o <> emit' 0 i e
 
 instance Emit JSStmt where
-  emit' 0 _ (JSLet v Nothing) = "let " <> getJSIdent v
+  emit' 0 _ (JSLet v Nothing) = "let " <> getJSIdent v <> ";"
   emit' 0 i (JSLet v (Just e)) = "let " <> getJSIdent v <> " = "
     <> emit' 0 i e <> ";"
   emit' 0 i (JSConst v e) = "const " <> getJSIdent v <> " = "

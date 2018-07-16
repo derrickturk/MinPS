@@ -12,6 +12,8 @@ module Language.MinPS.Annotate (
   , annotate
   , annotate'
   , annotateStmt
+  , annotateContext
+  , annotateProgram
 
   , pattern ALet
   , pattern AType
@@ -242,6 +244,11 @@ annotateContext s (stmt:rest) = do
   (s', stmt') <- annotateStmt s stmt
   (s'', rest') <- annotateContext s' rest
   pure (s'', stmt':rest')
+
+annotateProgram :: MonadState Env m
+                => Context 'KnownType ->
+                m (Context 'Annotated)
+annotateProgram = (fmap snd) . annotateContext []
 
 piArity :: CTerm -> Arity
 piArity (CPi x _ r) = AS x (piArity r)

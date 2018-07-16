@@ -4,6 +4,7 @@
 
 module Language.MinPS.Compile (
     Compile(..)
+  , compileProgram
   , jsVar
   , jsIdent
 ) where
@@ -57,7 +58,7 @@ instance Compile TermX JSExpr where
   -- TODO: handle shadowing etc etc
   compile c (APolyLam a t) = go c [] a t where
     go :: [JSExpr] -> [JSIdent] -> Arity -> ATerm -> JSExpr
-    go c args AZ t = JSLam args (compile c t)
+    go c args AZ t = JSLam (reverse args) (compile c t)
     go c args (AS x a) t = go ((jsVar x):c) ((jsIdent x):args) a t
 
   compile c (ASatApp Saturated f args) =
@@ -80,6 +81,11 @@ instance Compile Stmt ([JSExpr], JSStmt) where
   compile c (Define x t) = (c, JSExprStmt $ JSAssign (jsVar x) (compile c t))
   compile c (DeclareDefine x _ t) =
     ((jsVar x):c, JSLet (jsIdent x) (Just $ compile ((jsVar x):c) t))
+
+compileProgram :: [Stmt 'Annotated] -> [JSStmt]
+compileProgram = go [] [] where 
+  go c p (s:rest) = let (c', s') = compile c s in go c' (s':p) rest
+  go _ p [] = reverse p
 
 jsVar :: Ident -> JSExpr
 jsVar = JSVar . jsIdent

@@ -190,7 +190,28 @@ replCompile (Just line) = case P.parse (P.only P.stmt) "stdin" line of
     env <- gets replEnv
     let (_, s'') = evalState (annotateStmt names s') env
     let (_, s''') = compile (jsVar <$> names) s''
-    replPutTextLn $ emit $ s'''
+    replPutTextLn $ emit s'''
+
+replCompileFile :: Maybe T.Text -> Repl ()
+replCompileFile Nothing = replPutStrLn "Usage: :compilefile filename"
+replCompileFile (Just file) = do
+  let file' = T.unpack file
+  src <- liftIO $ (Just <$> TIO.readFile file') `catchError` handler
+  case src of
+    Just src' -> do
+      let parsed = P.parse (P.only P.context) file' src'
+      case parsed of
+        Left err -> replPutStrLn $ P.parseErrorPretty err
+        Right ctxt -> locally $ do
+          ctxt' <- mapM replTypecheckStmt ctxt
+          env <- gets replEnv
+          let ctxt'' = evalState (annotateProgram ctxt') env
+              compiled = compileProgram ctxt''
+          mapM_ (replPutTextLn . emit) compiled
+        `catchError` replHandleTypeError
+    Nothing -> replPutStrLn "Unable to load file."
+  where
+    handler _ = pure Nothing
 
 replPutStr :: String -> Repl ()
 replPutStr = liftIO . putStr
@@ -292,7 +313,9 @@ replCmds = [ ("quit", const quit)
            , ("annotate", replAnnotate)
            , ("a", replAnnotate)
            , ("compile", replCompile)
-           , ("c", replCompile)
+           , ("co", replCompile)
+           , ("compilefile", replCompileFile)
+           , ("cf", replCompileFile)
            ] where
   quit = replPutStrLn "" >> liftIO exitSuccess
   replSetFuel (Just t)
