@@ -20,6 +20,9 @@ module Language.MinPS.Repl (
   , replNormalizeClosure
   , replEvalTerm
   , replNormalizeTerm
+  , replAnnotate
+  , replCompile
+  , replCompileFile
   , replLine
   , replLoop
   , replPutStr

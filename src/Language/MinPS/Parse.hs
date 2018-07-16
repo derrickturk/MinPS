@@ -2,6 +2,7 @@
 
 module Language.MinPS.Parse (
     Parser
+  , space'
   , ident
   , stmt
   , context

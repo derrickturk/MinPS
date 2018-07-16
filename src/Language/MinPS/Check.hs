@@ -7,6 +7,8 @@ module Language.MinPS.Check (
   , check
   , check'
   , checkStmt
+  , checkContext
+  , checkProgram
   , infer
   , runCheck
   , runCheck'
@@ -300,3 +302,8 @@ checkContext = go Set.empty Set.empty where
     (stmt' :@ c', decls', defns') <- checkStmt (stmt :@ c) decls defns
     (rest' :@ c'') <- go decls' defns' (rest :@ c')
     pure (stmt':rest' :@ c'')
+
+checkProgram :: (MonadState Env m, MonadError TypeError m)
+             => Context 'Unchecked
+             -> m (Context 'KnownType)
+checkProgram = (fmap (\(x :@ _) -> x)) . checkContext . emptyC
