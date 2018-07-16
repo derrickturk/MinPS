@@ -52,6 +52,8 @@ import Language.MinPS.Value
 import Language.MinPS.Normalize
 import Language.MinPS.Pretty
 import Language.MinPS.Annotate
+import Language.MinPS.Compile
+import Language.JS.Syntax
 import qualified Language.MinPS.Parse as P
 
 data ReplState = ReplState { replScope :: Scope
@@ -171,6 +173,25 @@ replAnnotate (Just line) = case P.parse (P.only P.stmt) "stdin" line of
     let (_, s'') = evalState (annotateStmt names s') env
     replPrint s''
 
+replCompile :: Maybe T.Text -> Repl ()
+replCompile Nothing = replPutTextLn "Usage: :compile stmt-or-term"
+replCompile (Just line) = case P.parse (P.only P.stmt) "stdin" line of
+  Left _ -> case P.parse (P.only P.term) "stdin" line of
+    Left err -> replPutStrLn $ P.parseErrorPretty err
+    Right t -> locally $ do
+      t' <- replTypecheckTerm t
+      names <- gets (fmap fst . replScope)
+      env <- gets replEnv
+      let t'' = evalState (annotate' names t') env
+      replPutTextLn $ emit $ compile (jsVar <$> names) t''
+  Right s -> locally $ do
+    s' <- replTypecheckStmt s
+    names <- gets (fmap fst . replScope)
+    env <- gets replEnv
+    let (_, s'') = evalState (annotateStmt names s') env
+    let (_, s''') = compile (jsVar <$> names) s''
+    replPutTextLn $ emit $ s'''
+
 replPutStr :: String -> Repl ()
 replPutStr = liftIO . putStr
 
@@ -270,6 +291,8 @@ replCmds = [ ("quit", const quit)
            , ("nst", replSetShowTypes False)
            , ("annotate", replAnnotate)
            , ("a", replAnnotate)
+           , ("compile", replCompile)
+           , ("c", replCompile)
            ] where
   quit = replPutStrLn "" >> liftIO exitSuccess
   replSetFuel (Just t)

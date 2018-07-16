@@ -36,4 +36,4 @@ executable MinPS
                      , Language.MinPS.Annotate
                      , Language.MinPS.Compile
                      , Data.Fuel
-  ghc-options:         -Wall -O2 -fno-warn-unused-do-bind
+  ghc-options:         -Wall -O2 -fno-warn-unused-do-bind -fno-warn-name-shadowing
