@@ -46,6 +46,26 @@ instance Compile TermX JSExpr where
     JSComma (compile c t) (compile c u)
   compile c (ACase (BoolRepr, reprs) t cases) = boolCases c t reprs cases
   compile c (ACase (IntRepr, reprs) t cases) = intCases c t reprs cases
+  compile _ (ACase _ _ _) = error "internal error: invalid repr chosen"
+
+  compile c (AForce t) = JSCall (compile c t) []
+
+  compile c (AUnfold t x u) = case u of
+    (Var 0 _) -> compile c t
+    _ -> JSCall (JSLam [jsIdent x] (compile ((jsVar x):c) u)) [compile c t]
+
+  -- TODO: handle shadowing etc etc
+  compile c (APolyLam a t) = go c [] a t where
+    go :: [JSExpr] -> [JSIdent] -> Arity -> ATerm -> JSExpr
+    go c args AZ t = JSLam args (compile c t)
+    go c args (AS x a) t = go ((jsVar x):c) ((jsIdent x):args) a t
+
+  compile c (ASatApp Saturated f args) =
+    JSCall (compile c f) (compile c <$> args)
+  compile c (ASatApp (Unsaturated rest) f args) =
+    let rest' = curriedNames rest in
+      JSLam rest'
+        (JSCall (compile c f) ((compile c <$> args) ++ (JSVar <$> rest')))
 
   -- TODO: erasure (or handle in annotation)
   compile _ (AType) = JSNull
@@ -54,8 +74,6 @@ instance Compile TermX JSExpr where
   compile _ (AEnum _ _) = JSNull
   compile _ (ARec _) = JSNull
   compile _ (ALift _) = JSNull
-
-  compile _ _ = JSUndefined
 
 instance Compile Stmt ([JSExpr], JSStmt) where
   compile c (Declare x _) = ((jsVar x):c, JSLet (jsIdent x) Nothing)
