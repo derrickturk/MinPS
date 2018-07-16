@@ -69,12 +69,12 @@ instance Compile TermX JSExpr where
         (JSCall (compile c f) ((compile c <$> args) ++ (JSVar <$> rest')))
 
   -- TODO: erasure (or handle in annotation)
-  compile _ (AType) = JSNull
-  compile _ (APi _ _ _ _) = JSNull
-  compile _ (ASigma _ _ _ _) = JSNull
-  compile _ (AEnum _ _) = JSNull
-  compile _ (ARec _) = JSNull
-  compile _ (ALift _) = JSNull
+  compile _ (AType) = JSUndefined
+  compile _ (APi _ _ _ _) = JSUndefined
+  compile _ (ASigma _ _ _ _) = JSUndefined
+  compile _ (AEnum _ _) = JSUndefined
+  compile _ (ARec _) = JSUndefined
+  compile _ (ALift _) = JSUndefined
 
 instance Compile Stmt ([JSExpr], JSStmt) where
   compile c (Declare x _) = ((jsVar x):c, JSLet (jsIdent x) Nothing)
@@ -91,7 +91,9 @@ jsVar :: Ident -> JSExpr
 jsVar = JSVar . jsIdent
 
 jsIdent :: Ident -> JSIdent
-jsIdent = MkJSIdent . getIdent
+jsIdent = MkJSIdent . T.map fixChar . getIdent where
+  fixChar '\'' = '$'
+  fixChar c = c
 
 boolCases :: [JSExpr] -> ATerm -> LabelMap -> [(Label, ATerm)] -> JSExpr
 boolCases c t m [(l1, u1), (_, u2)] = case m M.! l1 of
