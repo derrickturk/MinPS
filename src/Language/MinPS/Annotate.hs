@@ -40,6 +40,7 @@ import qualified Data.Map as M
 import Language.MinPS.Syntax
 import Language.MinPS.Environment
 import Language.MinPS.Eval
+import Language.MinPS.Normalize
 import Language.MinPS.Value
 import Language.JS.Syntax
 
@@ -63,12 +64,12 @@ type EnumRepr = (LabelRepr, LabelMap)
 
 data Saturation =
     Saturated
-  | Unsaturated [Ident] [Ident]
+  | Unsaturated [Ident]
   deriving (Eq, Show)
 
 data Rewrite =
     PolyLam Arity ATerm -- rewrite nested lambdas to polyadic fns
-  | SatApp Saturation ATerm ATerm -- rewrite nested application
+  | SatApp Saturation ATerm [ATerm] -- rewrite nested application
 
 -- dunno what to do with pairs yet
 -- TODO: erasure annotation (e.g. Type)
@@ -144,8 +145,8 @@ pattern AUnfold t x u = Unfold () t x u
 pattern APolyLam :: Arity -> ATerm -> ATerm
 pattern APolyLam a t = TermX (PolyLam a t)
 
-pattern ASatApp :: Saturation -> ATerm -> ATerm -> ATerm
-pattern ASatApp s f x = TermX (SatApp s f x)
+pattern ASatApp :: Saturation -> ATerm -> [ATerm] -> ATerm
+pattern ASatApp s f xs = TermX (SatApp s f xs)
 
 {-# COMPLETE ALet, AType, AVar, APi, ASigma,
    APair, AEnum, AEnumLabel, ALift, ABox, ARec,
@@ -195,6 +196,7 @@ annotate' s (KFold _ t) = AFold <$> annotate' s t
 
 -- TODO: left off here for vacation
 -- SatApps; this is where the fun begins
+annotate' s (KApp _ f x) = foldApp s f x
 
 annotateStmt :: MonadState Env m
              => [Ident]
@@ -240,3 +242,23 @@ enumRepr [unit] = (UnitRepr, M.singleton unit JSNull)
 enumRepr [false, true] =
   (BoolRepr, M.fromList [(false, JSBool False), (true, JSBool True)])
 enumRepr ls = (IntRepr, M.fromList (zip ls (JSInt <$> [0..])))
+
+foldApp :: MonadState Env m => [Ident] -> KTerm -> KTerm -> m ATerm
+foldApp s t u = do
+  satArity <- piArity <$> outerPi t
+  go satArity t u []
+  where
+    outerPi (KApp _ f _) = outerPi f
+    outerPi f = eval' (typeOf f) >>= normalize
+
+    go (AS _ a) (KApp _ f x) y xs = go a f x (y:xs)
+    go (AS _ AZ) f x xs =
+      ASatApp Saturated <$> annotate' s f
+                        <*> traverse (annotate' s) (x:xs)
+    go (AS _ rest) f x xs =
+      ASatApp (Unsaturated (names rest)) <$> annotate' s f
+                                         <*> traverse (annotate' s) (x:xs)
+    go AZ _ _ _ = error "internal error: zero-arity function application"
+
+    names AZ = []
+    names (AS n a) = n:(names a)
