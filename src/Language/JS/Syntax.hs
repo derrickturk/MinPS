@@ -48,6 +48,7 @@ data JSExpr =
   | JSUnOpApp JSUnOp JSExpr
   | JSBinOpApp JSBinOp JSExpr JSExpr
   | JSAssign JSExpr JSExpr
+  | JSComma JSExpr JSExpr
   deriving (Eq, Show)
 
 data JSStmt =
@@ -59,6 +60,7 @@ data JSStmt =
   | JSIfElse JSExpr [JSStmt] (Maybe [JSStmt])
   | JSFor JSStmt JSExpr JSExpr [JSStmt]
   | JSWhile JSExpr [JSStmt]
+  | JSSwitch JSExpr [(JSExpr, [JSStmt])]
   deriving (Eq, Show)
 
 class Emit a where
@@ -104,6 +106,8 @@ instance Emit JSExpr where
     <> emitBinOp op <> emit' 0 i rhs <> ")"
   emit' o i (JSAssign lval rval) = indent o <> emit' 0 i lval <> " = "
     <> emit' 0 i rval
+  emit' o i (JSComma t u) = indent o <> "(" <> emit' 0 i t <> "), ("
+    <> emit' 0 i u <> ")"
   emit' o i e = indent o <> emit' 0 i e
 
 instance Emit JSStmt where
@@ -134,6 +138,9 @@ instance Emit JSStmt where
   emit' o i (JSWhile cond body) = indent o <> "while (" <> emit' 0 i cond
     <> ") {\n" <> sepMap "\n" (emit' i (i + 1)) body
     <> "\n" <> indent o <> "}\n"
+  emit' o i (JSSwitch e cases) = indent o <> "switch (" <> emit e <> ") {\n"
+    <> sepMap "\n" (emitCase i (i + 1)) cases
+    <> "\n" <> indent o <> "}\n"
   emit' o i s = indent o <> emit' 0 i s
 
 indent :: Int -> T.Text
@@ -153,3 +160,8 @@ emitBinOp :: JSBinOp -> T.Text
 emitBinOp JSEq = " === "
 emitBinOp JSAnd = " && "
 emitBinOp JSOr = " || "
+
+emitCase :: Int -> Int -> (JSExpr, [JSStmt]) -> T.Text
+emitCase o i (e, body) = emit' o i e <> ": \n"
+  <> sepMap "\n" (emit' i (i + 1)) body
+  <> indent i <> "break;\n"

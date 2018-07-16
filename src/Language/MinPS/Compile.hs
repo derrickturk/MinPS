@@ -41,6 +41,12 @@ instance Compile TermX JSExpr where
         c' = (JSIndex t' (JSInt 1)):(JSIndex t' (JSInt 0)):c in
         compile c' u
 
+  compile c (ACase (VoidRepr, _) t _) = JSComma (compile c t) JSUndefined
+  compile c (ACase (UnitRepr, _) t [(_, u)]) =
+    JSComma (compile c t) (compile c u)
+  compile c (ACase (BoolRepr, reprs) t cases) = boolCases c t reprs cases
+  compile c (ACase (IntRepr, reprs) t cases) = intCases c t reprs cases
+
   -- TODO: erasure (or handle in annotation)
   compile _ (AType) = JSNull
   compile _ (APi _ _ _ _) = JSNull
@@ -62,6 +68,23 @@ jsVar = JSVar . jsIdent
 
 jsIdent :: Ident -> JSIdent
 jsIdent = MkJSIdent . getIdent
+
+boolCases :: [JSExpr] -> ATerm -> LabelMap -> [(Label, ATerm)] -> JSExpr
+boolCases c t m [(l1, u1), (_, u2)] = case m M.! l1 of
+  JSBool True -> JSCond (compile c t) (compile c u1) (compile c u2)
+  _ -> JSCond (compile c t) (compile c u2) (compile c u1)
+boolCases _ _ _ _ = error "internal error: invalid repr chosen"
+
+intCases :: [JSExpr] -> ATerm -> LabelMap -> [(Label, ATerm)] -> JSExpr
+intCases c t m cases =
+  JSCall (JSFun ["$arg"] [ JSLet "$result" Nothing
+                         , JSSwitch (JSVar "$arg") (fmap setCase cases)
+                         , JSReturn (JSVar "$result")
+                         ])
+         [(compile c t)]
+  where
+    setCase (l, t) =
+      (m M.! l, [JSExprStmt $ JSAssign (JSVar "$result") (compile c t)])
 
 curriedNames :: [Ident] -> [JSIdent]
 curriedNames = go S.empty 1 where
