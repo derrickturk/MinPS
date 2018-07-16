@@ -8,7 +8,7 @@ module Language.MinPS.Compile (
   , jsIdent
 ) where
 
-import qualified Data.Map as M
+import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import qualified Data.Text as T
 
@@ -24,7 +24,32 @@ instance Compile TermX JSExpr where
     body c (s:rest) t = let (c', s') = compile c s in s':(body c' rest t)
     body c [] t = [JSReturn (compile c t)]
 
-  compile c (AVar i _) = c !! i 
+  compile c (AVar i _) = c !! i
+
+  compile c (APair t u) = JSArr [compile c t, compile c u]
+
+  compile _ (AEnumLabel (_, reprs) l) = reprs M.! l
+
+  compile c (ABox t) = JSLam [] (compile c t)
+
+  -- TODO: hmmm
+  compile c (AFold t) = compile c t
+
+  -- TODO: we could introduce a temporary
+  compile c (ASplit t _ _ u) =
+    let t' = compile c t
+        c' = (JSIndex t' (JSInt 1)):(JSIndex t' (JSInt 0)):c in
+        compile c' u
+
+  -- TODO: erasure (or handle in annotation)
+  compile _ (AType) = JSNull
+  compile _ (APi _ _ _ _) = JSNull
+  compile _ (ASigma _ _ _ _) = JSNull
+  compile _ (AEnum _ _) = JSNull
+  compile _ (ARec _) = JSNull
+  compile _ (ALift _) = JSNull
+
+  compile _ _ = JSUndefined
 
 instance Compile Stmt ([JSExpr], JSStmt) where
   compile c (Declare x _) = ((jsVar x):c, JSLet (jsIdent x) Nothing)

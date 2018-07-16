@@ -36,7 +36,7 @@ module Language.MinPS.Annotate (
 import Control.Monad.State
 import Data.Void
 import Data.List (elemIndex)
-import qualified Data.Map as M
+import qualified Data.Map.Strict as M
 
 import Language.MinPS.Syntax
 import Language.MinPS.Environment

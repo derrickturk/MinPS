@@ -44,6 +44,7 @@ data JSExpr =
   | JSCond JSExpr JSExpr JSExpr 
   | JSCall JSExpr [JSExpr]
   | JSMember JSExpr JSIdent
+  | JSIndex JSExpr JSExpr
   | JSUnOpApp JSUnOp JSExpr
   | JSBinOpApp JSBinOp JSExpr JSExpr
   | JSAssign JSExpr JSExpr
@@ -96,6 +97,8 @@ instance Emit JSExpr where
     <> emit' 0 i f <> ")(" <> sepMap ", " (emit' 0 i) args <> ")"
   emit' o i (JSMember x m) = indent o <> "(" <> emit' 0 i x <> ")."
     <> getJSIdent m
+  emit' o i (JSIndex x ix) = indent o <> "(" <> emit' 0 i x <> ")["
+    <> emit' 0 i ix <> "]"
   emit' o i (JSUnOpApp op e) = indent o <> emitUnOp op (emit' 0 i e)
   emit' o i (JSBinOpApp op lhs rhs) = indent o <> "(" <> emit' 0 i lhs
     <> emitBinOp op <> emit' 0 i rhs <> ")"
@@ -104,7 +107,7 @@ instance Emit JSExpr where
   emit' o i e = indent o <> emit' 0 i e
 
 instance Emit JSStmt where
-  emit' 0 i (JSLet v Nothing) = "let " <> getJSIdent v
+  emit' 0 _ (JSLet v Nothing) = "let " <> getJSIdent v
   emit' 0 i (JSLet v (Just e)) = "let " <> getJSIdent v <> " = "
     <> emit' 0 i e <> ";"
   emit' 0 i (JSConst v e) = "const " <> getJSIdent v <> " = "
