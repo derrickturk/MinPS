@@ -51,6 +51,7 @@ import Language.MinPS.Eval
 import Language.MinPS.Value
 import Language.MinPS.Normalize
 import Language.MinPS.Pretty
+import Language.MinPS.Annotate
 import qualified Language.MinPS.Parse as P
 
 data ReplState = ReplState { replScope :: Scope
@@ -152,6 +153,24 @@ replNormalizeTerm term = do
   c <- gets replScope
   replNormalizeClosure (term :@ c)
 
+replAnnotate :: Maybe T.Text -> Repl ()
+replAnnotate Nothing = replPutTextLn "Usage: :annotate stmt-or-term"
+replAnnotate (Just line) = case P.parse (P.only P.stmt) "stdin" line of
+  Left _ -> case P.parse (P.only P.term) "stdin" line of
+    Left err -> replPutStrLn $ P.parseErrorPretty err
+    Right t -> locally $ do
+      t' <- replTypecheckTerm t
+      names <- gets (fmap fst . replScope)
+      env <- gets replEnv
+      let t'' = evalState (annotate' names t') env
+      replPrint t''
+  Right s -> locally $ do
+    s' <- replTypecheckStmt s
+    names <- gets (fmap fst . replScope)
+    env <- gets replEnv
+    let (_, s'') = evalState (annotateStmt names s') env
+    replPrint s''
+
 replPutStr :: String -> Repl ()
 replPutStr = liftIO . putStr
 
@@ -249,6 +268,8 @@ replCmds = [ ("quit", const quit)
            , ("st", replSetShowTypes True)
            , ("noshowtypes", replSetShowTypes False)
            , ("nst", replSetShowTypes False)
+           , ("annotate", replAnnotate)
+           , ("a", replAnnotate)
            ] where
   quit = replPutStrLn "" >> liftIO exitSuccess
   replSetFuel (Just t)

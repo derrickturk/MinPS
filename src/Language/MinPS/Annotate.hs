@@ -1,5 +1,6 @@
 {-# LANGUAGE GADTs, DataKinds, MultiParamTypeClasses, FlexibleContexts #-}
 {-# LANGUAGE LambdaCase, TypeFamilies, PatternSynonyms #-}
+{-# LANGUAGE StandaloneDeriving, FlexibleInstances #-}
 
 module Language.MinPS.Annotate (
     ATerm
@@ -70,6 +71,7 @@ data Saturation =
 data Rewrite =
     PolyLam Arity ATerm -- rewrite nested lambdas to polyadic fns
   | SatApp Saturation ATerm [ATerm] -- rewrite nested application
+  deriving (Eq, Show)
 
 -- dunno what to do with pairs yet
 -- TODO: erasure annotation (e.g. Type)
@@ -183,6 +185,8 @@ annotate' s sig@(KSigma _ x t u) = do
 annotate' s lam@(KLam _ _ _) = foldLam s lam >>= \(a, body)
   -> pure (APolyLam a body)
 
+annotate' s (KPair _ t u) = APair <$> annotate' s t <*> annotate' s u
+
 annotate' _ (KEnum _ lbls) = pure $ AEnum (enumRepr lbls) lbls
 
 -- TODO: raw, eval, or normalize here?
@@ -192,11 +196,28 @@ annotate' _ (KEnumLabel ty l) = eval' ty >>= \case
 
 annotate' s (KLift _ t) = ALift <$> annotate' s t
 annotate' s (KBox _ t) = ABox <$> annotate' s t
+annotate' s (KRec _ t) = ARec <$> annotate' s t
 annotate' s (KFold _ t) = AFold <$> annotate' s t
 
--- TODO: left off here for vacation
--- SatApps; this is where the fun begins
 annotate' s (KApp _ f x) = foldApp s f x
+
+annotate' s (KSplit _ t x y u) = ASplit <$> annotate' s t
+                                        <*> pure x
+                                        <*> pure y
+                                        <*> annotate' (y:x:s) u
+
+annotate' s (KCase _ t cases) = eval' (typeOf t) >>= \case
+  VEnum lbls -> ACase (enumRepr lbls) <$> annotate' s t
+                                      <*> traverse annotateCase cases
+  _ -> error "internal error: expected enum type"
+  where
+    annotateCase (l, u) = (,) <$> pure l <*> annotate' s u
+
+annotate' s (KForce _ t) = AForce <$> annotate' s t
+
+annotate' s (KUnfold _ t x u) = AUnfold <$> annotate' s t
+                                        <*> pure x
+                                        <*> annotate' (x:s) u
 
 annotateStmt :: MonadState Env m
              => [Ident]
@@ -262,3 +283,10 @@ foldApp s t u = do
 
     names AZ = []
     names (AS n a) = n:(names a)
+
+-- YES I KNOW THEY'RE ORPHANS
+deriving instance Show (TermX 'Annotated)
+deriving instance Eq (TermX 'Annotated)
+
+deriving instance Show (Stmt 'Annotated)
+deriving instance Eq (Stmt 'Annotated)
