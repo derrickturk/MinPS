@@ -127,8 +127,10 @@ productTerm =  try (uncurry USigma <$> binder <*> (lexeme "*" *> term))
            <|> (foldl $ USigma "_") <$> appTerm
                                    <*> many (lexeme "*" *> productTerm)
 
+-- TODO: recognize the "original" let syntax again
 term :: Parser (UTerm)
-term =  try (ULet <$> ("let" *> space1 *> context) <*> ("in" *> space1 *> term))
+term =  try (ULet <$> (lexeme "let" *> lexeme "{" *> context <* lexeme "}")
+                  <*> ("in" *> space1 *> term))
     <|> try lambda
     <|> try (USplit <$> ("split" *> space1 *> term) <*>
                        (lexeme "with" *> lexeme "(" *> ident) <*>

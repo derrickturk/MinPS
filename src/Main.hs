@@ -52,4 +52,4 @@ compileFile path = do
       (Right prog, env) -> let annotated = evalState (annotateProgram prog) env
                                compiled = compileProgram annotated in
                                TIO.writeFile outPath $
-                                 T.intercalate "\n" $ fmap emit compiled
+                                 T.intercalate "\n\n" $ fmap emit compiled
