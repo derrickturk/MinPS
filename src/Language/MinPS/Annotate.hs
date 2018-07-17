@@ -4,7 +4,8 @@
 
 module Language.MinPS.Annotate (
     ATerm
-  , Arity(..)
+  , PiArity(..)
+  , SigmaArity(..)
   , EnumRepr
   , LabelRepr(..)
   , LabelMap
@@ -51,10 +52,14 @@ import Language.JS.Syntax
 
 type ATerm = TermX 'Annotated
 
-data Arity =
+data PiArity =
     AZ
-  | AS Ident Arity
+  | AS Ident PiArity
   deriving (Eq, Show)
+
+data SigmaArity =
+    AFinal
+  | APair Ident SigmaArity
 
 data LabelRepr =
     VoidRepr
@@ -68,7 +73,7 @@ type LabelMap = M.Map Label JSExpr
 type EnumRepr = (LabelRepr, LabelMap)
 
 data PairRepr =
-    PairRepr
+    TupleRepr SigmaArity
   | NullableRepr Label EnumRepr
   deriving (Eq, Show)
 
@@ -78,7 +83,7 @@ data Saturation =
   deriving (Eq, Show)
 
 data Rewrite =
-    PolyLam Arity ATerm -- rewrite nested lambdas to polyadic fns
+    PolyLam PiArity ATerm -- rewrite nested lambdas to polyadic fns
   | SatApp Saturation ATerm [ATerm] -- rewrite nested application
   deriving (Eq, Show)
 
@@ -88,8 +93,8 @@ data Rewrite =
 type instance XLet 'Annotated = ()
 type instance XType 'Annotated = ()
 type instance XVar 'Annotated = Int -- de Bruijn indices; probably, eventually, do an occurs check here
-type instance XPi 'Annotated = Arity
-type instance XSigma 'Annotated = Arity -- let's do it and see what happens
+type instance XPi 'Annotated = PiArity
+type instance XSigma 'Annotated = SigmaArity -- let's do it and see what happens
 type instance XLam 'Annotated = Void -- must be rewritten to PolyLams
 type instance XPair 'Annotated = PairRepr
 type instance XEnum 'Annotated = EnumRepr
@@ -114,10 +119,10 @@ pattern AType = Type ()
 pattern AVar :: Int -> Ident -> ATerm
 pattern AVar i x = Var i x
 
-pattern APi :: Arity -> Ident -> ATerm -> ATerm -> ATerm
+pattern APi :: PiArity -> Ident -> ATerm -> ATerm -> ATerm
 pattern APi a x ty t = Pi a x ty t
 
-pattern ASigma :: Arity -> Ident -> ATerm -> ATerm -> ATerm
+pattern ASigma :: SigmaArity -> Ident -> ATerm -> ATerm -> ATerm
 pattern ASigma a x ty t = Sigma a x ty t
 
 pattern APair :: PairRepr -> ATerm -> ATerm -> ATerm
@@ -153,7 +158,7 @@ pattern AForce t = Force () t
 pattern AUnfold :: ATerm -> Ident -> ATerm -> ATerm
 pattern AUnfold t x u = Unfold () t x u
 
-pattern APolyLam :: Arity -> ATerm -> ATerm
+pattern APolyLam :: PiArity -> ATerm -> ATerm
 pattern APolyLam a t = TermX (PolyLam a t)
 
 pattern ASatApp :: Saturation -> ATerm -> [ATerm] -> ATerm
@@ -198,7 +203,7 @@ annotate' s (KPair ty t u) = do
   ty' <- eval' ty
   repr <- case ty' of
     VSigma x ((ty, t) :@ c) -> pairRepr (CSigma x ty t :@ c)
-    _ -> pure PairRepr
+    _ -> pure $ TupleRepr (APair "_")
   APair repr <$> annotate' s t <*> annotate' s u
 
 annotate' _ (KEnum _ lbls) = pure $ AEnum (enumRepr lbls) lbls
@@ -272,16 +277,16 @@ nonNullLabel (BoolRepr, m) null = case M.toList (M.delete null m) of
   _ -> Nothing
 nonNullLabel _ _ = Nothing
 
-piArity :: CTerm -> Arity
+piArity :: CTerm -> PiArity
 piArity (CPi x _ r) = AS x (piArity r)
 piArity _ = AZ
 
-sigmaArity :: CTerm -> Arity
-sigmaArity (CSigma x _ r) = AS x (sigmaArity r)
-sigmaArity _ = AZ
+sigmaArity :: CTerm -> SigmaArity
+sigmaArity (CSigma x _ r) = APair x (sigmaArity r)
+sigmaArity _ = AFinal
 
 pairRepr :: MonadState Env m => Closure CTerm -> m PairRepr
-pairRepr (CSigma x ty r :@ c) = eval' (ty :@ c) >>= \case
+pairRepr sig@(CSigma x ty r :@ c) = eval' (ty :@ c) >>= \case
   VEnum lbls@[_, _] -> case r of
     CCase (CVar y) [(l1, r1), (l2, r2)] | x == y -> do
       i <- declareE x (Just (ty :@ c))
@@ -290,7 +295,7 @@ pairRepr (CSigma x ty r :@ c) = eval' (ty :@ c) >>= \case
       case (r1', r2') of
         (VEnum [_], _) -> pure $ NullableRepr l1 (enumRepr lbls)
         (_, VEnum [_]) -> pure $ NullableRepr l2 (enumRepr lbls)
-        _ -> pure PairRepr
+        _ -> pure $ TupleRepr $ sigmaArity sig
     CForce (CCase (CVar y) [(l1, CBox r1), (l2, CBox r2)]) | x == y -> do
       i <- declareE x (Just (ty :@ c))
       r1' <- eval' (r1 :@ (x, i):c)
@@ -298,12 +303,12 @@ pairRepr (CSigma x ty r :@ c) = eval' (ty :@ c) >>= \case
       case (r1', r2') of
         (VEnum [_], _) -> pure $ NullableRepr l1 (enumRepr lbls)
         (_, VEnum [_]) -> pure $ NullableRepr l2 (enumRepr lbls)
-        _ -> pure PairRepr
-    _ -> pure PairRepr
-  _ -> pure PairRepr
-pairRepr _ = pure PairRepr
+        _ -> pure $ TupleRepr $ sigmaArity sig
+    _ -> pure $ TupleRepr $ sigmaArity sig
+  _ -> pure $ TupleRepr $ sigmaArity sig
+pairRepr _ = pure $ TupleRepr (APair "_")
 
-foldLam :: MonadState Env m => [Ident] -> KTerm -> m (Arity, ATerm)
+foldLam :: MonadState Env m => [Ident] -> KTerm -> m (PiArity, ATerm)
 foldLam s (KLam _ x body) = do
   (a, result) <- foldLam (x:s) body
   pure (AS x a, result)

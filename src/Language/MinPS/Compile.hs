@@ -27,7 +27,12 @@ instance Compile TermX JSExpr where
 
   compile c (AVar i _) = c !! i
 
-  compile c (APair PairRepr t u) = JSArr [compile c t, compile c u]
+  compile c (APair (TupleRepr a) t u) = JSArr (go a u [compile c t]) where
+    go AFinal x xs = reverse $ (compile c x):xs
+    go (APair _ a) (Pair x y) xs = go a y ((compile c x):xs)
+    go a@(APair _ _) e xs = let e' = compile c e in unroll 0 a e' xs
+    unroll i AFinal ce xs = reverse $ (JSIndex ce (JSInt i)):xs
+    unroll i (APair _ a) ce xs = unroll (i + 1) a ce ((JSIndex ce (JSInt i)):xs)
   compile c (APair (NullableRepr null _) (AEnumLabel _ l) u)
     | l == null = JSNull
     | otherwise = JSArr [compile c u]
@@ -44,7 +49,9 @@ instance Compile TermX JSExpr where
   compile c (AFold t) = compile c t
 
   -- TODO: we could introduce a temporary
-  compile c (ASplit PairRepr t _ _ u) =
+  -- TODO: TupleRepr is going to be hard to compile; we need to walk into splits
+  --   and rewrite deep RHS splits to array slices
+  compile c (ASplit (APair  t _ _ u) =
     let t' = compile c t
         c' = (JSIndex t' (JSInt 1)):(JSIndex t' (JSInt 0)):c in
         compile c' u
@@ -79,7 +86,7 @@ instance Compile TermX JSExpr where
 
   -- TODO: handle shadowing etc etc
   compile c (APolyLam a t) = go c [] a t where
-    go :: [JSExpr] -> [JSIdent] -> Arity -> ATerm -> JSExpr
+    go :: [JSExpr] -> [JSIdent] -> PiArity -> ATerm -> JSExpr
     go c args AZ t = JSLam (reverse args) (compile c t)
     go c args (AS x a) t = go ((jsVar x):c) ((jsIdent x):args) a t
 
