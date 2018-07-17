@@ -194,7 +194,7 @@ annotate' _ (KEnum _ lbls) = pure $ AEnum (enumRepr lbls) lbls
 -- TODO: raw, eval, or normalize here?
 annotate' _ (KEnumLabel ty l) = eval' ty >>= \case
   VEnum lbls -> pure $ AEnumLabel (enumRepr lbls) l
-  _ -> error "internal error: expected enum type"
+  _ -> error "internal error: expected enum type (annotating label)"
 
 annotate' s (KLift _ t) = ALift <$> annotate' s t
 annotate' s (KBox _ t) = ABox <$> annotate' s t
@@ -211,7 +211,7 @@ annotate' s (KSplit _ t x y u) = ASplit <$> annotate' s t
 annotate' s (KCase _ t cases) = eval' (typeOf t) >>= \case
   VEnum lbls -> ACase (enumRepr lbls) <$> annotate' s t
                                       <*> traverse annotateCase cases
-  _ -> error "internal error: expected enum type"
+  _ -> error "internal error: expected enum type (annotating case)"
   where
     annotateCase (l, u) = (,) <$> pure l <*> annotate' s u
 
