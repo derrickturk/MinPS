@@ -291,6 +291,14 @@ pairRepr (CSigma x ty r :@ c) = eval' (ty :@ c) >>= \case
         (VEnum [_], _) -> pure $ NullableRepr l1 (enumRepr lbls)
         (_, VEnum [_]) -> pure $ NullableRepr l2 (enumRepr lbls)
         _ -> pure PairRepr
+    CForce (CCase (CVar y) [(l1, CBox r1), (l2, CBox r2)]) | x == y -> do
+      i <- declareE x (Just (ty :@ c))
+      r1' <- eval' (r1 :@ (x, i):c)
+      r2' <- eval' (r2 :@ (x, i):c)
+      case (r1', r2') of
+        (VEnum [_], _) -> pure $ NullableRepr l1 (enumRepr lbls)
+        (_, VEnum [_]) -> pure $ NullableRepr l2 (enumRepr lbls)
+        _ -> pure PairRepr
     _ -> pure PairRepr
   _ -> pure PairRepr
 pairRepr _ = pure PairRepr
