@@ -164,10 +164,14 @@ annotate' _ (KEnum _ _) = pure $ AErased EKNonPiType
 annotate' _ (KLift _ _) = pure $ AErased EKNonPiType
 annotate' _ (KRec _ _) = pure  $ AErased EKNonPiType
 
-annotate' s (KLet _ ctxt t) = do
-  (s', ctxt') <- annotateContext s ctxt
-  t' <- annotate' s' t
-  pure $ ALet ctxt' t'
+annotate' s (KLet ty ctxt t) = do
+  ty' <- eval' ty
+  case typeShouldEraseV ty' of
+    EKeep -> do
+      (s', ctxt') <- annotateContext s ctxt
+      t' <- annotate' s' t
+      pure $ ALet ctxt' t'
+    EErase e -> pure $ AErased e
 
 annotate' s (KVar _ v) = case elemIndex v s of
   Just i -> pure $ AVar i v
