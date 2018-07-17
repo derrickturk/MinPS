@@ -42,7 +42,6 @@ import qualified Data.Map.Strict as M
 import Language.MinPS.Syntax
 import Language.MinPS.Environment
 import Language.MinPS.Eval
-import Language.MinPS.Normalize
 import Language.MinPS.Value
 import Language.JS.Syntax
 
@@ -71,23 +70,23 @@ data PairRepr =
 
 data Saturation =
     Saturated
-  | Unsaturated [Ident]
+  | Unsaturated [(Erasure, Ident)]
   deriving (Eq, Show)
 
 data Erasure =
-    ShouldNotErase
-  | ShouldErase ErasureKind
+    EKeep
+  | EErase ErasureKind
   deriving (Eq, Show)
 
 data ErasureKind =
-    EPiType Erasure
-  | ENonPiType
-  | ETypeType
+    EKPiType Erasure
+  | EKNonPiType
+  | EKTypeType
   deriving (Eq, Show)
 
 data Rewrite =
     PolyLam Arity ATerm -- rewrite nested lambdas to polyadic fns
-  | SatApp Saturation ATerm [ATerm] -- rewrite nested application
+  | SatApp Saturation ATerm [(Erasure, ATerm)] -- rewrite nested application
   | Erased ErasureKind -- an erased term
   deriving (Eq, Show)
 
@@ -144,7 +143,7 @@ pattern AUnfold t x u = Unfold () t x u
 pattern APolyLam :: Arity -> ATerm -> ATerm
 pattern APolyLam a t = TermX (PolyLam a t)
 
-pattern ASatApp :: Saturation -> ATerm -> [ATerm] -> ATerm
+pattern ASatApp :: Saturation -> ATerm -> [(Erasure, ATerm)] -> ATerm
 pattern ASatApp s f xs = TermX (SatApp s f xs)
 
 pattern AErased :: ErasureKind -> ATerm
@@ -157,13 +156,13 @@ annotate :: MonadState Env m => KTerm -> m ATerm
 annotate = annotate' []
 
 annotate' :: MonadState Env m => [Ident] -> KTerm -> m ATerm
-annotate' _ (KType _) = pure $ AErased ETypeType
+annotate' _ (KType _) = pure $ AErased EKTypeType
 annotate' _ pi@(KPi _ _ _ _) =
-  pure $ AErased $ EPiType $ piShouldErase (forget pi)
-annotate' _ (KSigma _ _ _ _) = pure $ AErased ENonPiType
-annotate' _ (KEnum _ _) = pure $ AErased ENonPiType
-annotate' _ (KLift _ _) = pure $ AErased ENonPiType
-annotate' _ (KRec _ _) = pure  $ AErased ENonPiType
+  pure $ AErased $ EKPiType $ piShouldErase (forget pi)
+annotate' _ (KSigma _ _ _ _) = pure $ AErased EKNonPiType
+annotate' _ (KEnum _ _) = pure $ AErased EKNonPiType
+annotate' _ (KLift _ _) = pure $ AErased EKNonPiType
+annotate' _ (KRec _ _) = pure  $ AErased EKNonPiType
 
 annotate' s (KLet _ ctxt t) = do
   (s', ctxt') <- annotateContext s ctxt
@@ -176,8 +175,8 @@ annotate' s (KVar _ v) = case elemIndex v s of
 
 annotate' s lam@(KLam ty _ _) = eval' ty >>= \case
   VPi x ((ty, t) :@ _) -> case piShouldErase (CPi x ty t) of
-    ShouldErase e -> pure $ AErased e -- a bit of a lie
-    ShouldNotErase -> foldLam s lam >>= \(a, body) -> pure (APolyLam a body)
+    EErase e -> pure $ AErased e -- a bit of a lie
+    EKeep -> foldLam s lam >>= \(a, body) -> pure (APolyLam a body)
   _ -> error $ "internal error: non-pi-type lambda"
 
 annotate' s (KPair ty t u) = do
@@ -254,14 +253,18 @@ nonNullLabel (BoolRepr, m) null = case M.toList (M.delete null m) of
   _ -> Nothing
 nonNullLabel _ _ = Nothing
 
-piArity :: CTerm -> Arity
-piArity (CPi x ty t) = AS x (typeShouldErase ty) (piArity t)
-piArity _ = AZ
+piArity :: MonadState Env m => Closure CTerm -> m Arity
+piArity (CPi x ty t :@ c) = do
+  ty' <- eval' (ty :@ c)
+  i <- declareE x $ Just (ty :@ c)
+  a <- piArity (t :@ (x, i):c)
+  pure $ AS x (typeShouldEraseV ty') a
+piArity _ = pure AZ
 
 piShouldErase :: CTerm -> Erasure
-piShouldErase CType = ShouldErase ETypeType
+piShouldErase CType = EErase EKTypeType
 piShouldErase (CPi _ _ t) = piShouldErase t
-piShouldErase _ = ShouldNotErase
+piShouldErase _ = EKeep
 
 {-
 sigmaArity :: CTerm -> Arity
@@ -270,17 +273,16 @@ sigmaArity _ = AZ
 -}
 
 typeShouldErase :: CTerm -> Erasure
-typeShouldErase CType = ShouldErase ETypeType
+typeShouldErase CType = EErase EKTypeType
 typeShouldErase pi@(CPi _ _ _) = piShouldErase pi
-typeShouldErase (CLift _) = ShouldErase ETypeType -- TODO: a lie
-typeShouldErase _ = ShouldNotErase
+typeShouldErase (CLift _) = EErase EKTypeType -- TODO: a lie
+typeShouldErase _ = EKeep
 
-termShouldErase :: MonadState Env m => KTerm -> m Erasure
-termShouldErase t = eval' (typeOf t) >>= \case
-  VType -> pure $ ShouldErase ETypeType
-  VPi x ((ty, t) :@ _) -> pure $ piShouldErase (CPi x ty t)
-  VLift _ -> pure $ ShouldErase ETypeType
-  _ -> pure ShouldNotErase
+typeShouldEraseV :: Value -> Erasure
+typeShouldEraseV VType = EErase EKTypeType
+typeShouldEraseV (VPi x ((ty, t) :@ _)) = piShouldErase (CPi x ty t)
+typeShouldEraseV (VLift _) = EErase EKTypeType
+typeShouldEraseV _ = EKeep
 
 pairRepr :: MonadState Env m => Closure CTerm -> m PairRepr
 pairRepr (CSigma x ty r :@ c) = eval' (ty :@ c) >>= \case
@@ -325,23 +327,28 @@ enumRepr = enumRepr' . sort where
 
 foldApp :: MonadState Env m => [Ident] -> KTerm -> KTerm -> m ATerm
 foldApp s t u = do
-  satArity <- piArity <$> outerPi t
-  go satArity t u []
+  satArity <- piArity (typeOf $ outerPi t)
+  go satArity t u [] []
   where
     outerPi (KApp _ f _) = outerPi f
-    outerPi f = eval' (typeOf f) >>= normalize
+    outerPi f = f
 
-    go (AS _ _ a) (KApp _ f x) y xs = go a f x (y:xs)
-    go (AS _ _ AZ) f x xs =
-      ASatApp Saturated <$> annotate' s f
-                        <*> traverse (annotate' s) (x:xs)
-    go (AS _ _ rest) f x xs =
-      ASatApp (Unsaturated (names rest)) <$> annotate' s f
-                                         <*> traverse (annotate' s) (x:xs)
-    go AZ _ _ _ = error "internal error: zero-arity function application"
+    go (AS _ e a) (KApp _ f x) y xs es = go a f x (y:xs) (e:es)
+
+    go (AS _ e AZ) f x xs es = ASatApp Saturated
+      <$> annotate' s f
+      <*> traverse (annotE s) (zip (reverse $ e:es) (x:xs))
+
+    go (AS _ e rest) f x xs es = ASatApp (Unsaturated (names rest))
+      <$> annotate' s f
+      <*> traverse (annotE s) (zip (reverse $ e:es) (x:xs))
+
+    go AZ _ _ _ _ = error "internal error: zero-arity function application"
+
+    annotE s (e, t) = (,) <$> pure e <*> annotate' s t
 
     names AZ = []
-    names (AS n _ a) = n:(names a)
+    names (AS n e a) = (e, n):(names a)
 
 -- YES I KNOW THEY'RE ORPHANS
 deriving instance Show (TermX 'Annotated)

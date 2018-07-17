@@ -83,20 +83,22 @@ instance Compile TermX JSExpr where
   compile c (APolyLam a t) = go c [] a t where
     go :: [JSExpr] -> [JSIdent] -> Arity -> ATerm -> JSExpr
     go c args AZ t = JSLam (reverse args) (compile c t)
-    go c args (AS x _ a) t = go ((jsVar x):c) ((jsIdent x):args) a t
+    go c args (AS x EKeep a) t = go ((jsVar x):c) ((jsIdent x):args) a t
+    go c args (AS x (EErase _) a) t = go ((jsVar x):c) args a t
 
   compile c (ASatApp Saturated f args) =
-    JSCall (compile c f) (compile c <$> args)
+    JSCall (compile c f) (compile c . snd <$> filter keep args)
   compile c (ASatApp (Unsaturated rest) f args) =
-    let rest' = curriedNames rest in
+    let rest' = curriedNames (snd <$> filter keep rest) in
       JSLam rest'
-        (JSCall (compile c f) ((compile c <$> args) ++ (JSVar <$> rest')))
+        (JSCall (compile c f)
+                ((compile c . snd <$> filter keep args) ++ (JSVar <$> rest')))
 
 instance Compile Stmt ([JSExpr], [JSStmt]) where
   -- named function definitions will get hoisted, so we can skip the
   --   pre-declaration...
-  compile c (Declare x (AErased ETypeType)) = ((jsVar x):c, [])
-  compile c (Declare x (AErased (EPiType _))) = ((jsVar x):c, [])
+  compile c (Declare x (AErased EKTypeType)) = ((jsVar x):c, [])
+  compile c (Declare x (AErased (EKPiType _))) = ((jsVar x):c, [])
   compile c (Declare x _) = ((jsVar x):c, [JSLet (jsIdent x) Nothing])
 
   -- and just emit the definition
@@ -106,7 +108,8 @@ instance Compile Stmt ([JSExpr], [JSStmt]) where
       go :: [JSExpr] -> [JSIdent] -> Arity -> ATerm -> [JSStmt]
       go c args AZ t =
         [JSFunDef (jsIdent x) (reverse args) [JSReturn $ compile c t]]
-      go c args (AS x _ a) t = go ((jsVar x):c) ((jsIdent x):args) a t
+      go c args (AS x EKeep a) t = go ((jsVar x):c) ((jsIdent x):args) a t
+      go c args (AS x (EErase _) a) t = go ((jsVar x):c) args a t
   compile c (Define x t) = (c, [JSExprStmt $ JSAssign (jsVar x) (compile c t)])
 
   compile c (DeclareDefine _ _ (AErased _)) = (c, [])
@@ -115,7 +118,8 @@ instance Compile Stmt ([JSExpr], [JSStmt]) where
       go :: [JSExpr] -> [JSIdent] -> Arity -> ATerm -> [JSStmt]
       go c args AZ t =
         [JSFunDef (jsIdent x) (reverse args) [JSReturn $ compile c t]]
-      go c args (AS x _ a) t = go ((jsVar x):c) ((jsIdent x):args) a t
+      go c args (AS x EKeep a) t = go ((jsVar x):c) ((jsIdent x):args) a t
+      go c args (AS x (EErase _) a) t = go ((jsVar x):c) args a t
   compile c (DeclareDefine x _ t) =
     ((jsVar x):c, [JSLet (jsIdent x) (Just $ compile ((jsVar x):c) t)])
 
@@ -148,6 +152,10 @@ intCases c t m cases =
   where
     setCase (l, t) =
       (m M.! l, [JSExprStmt $ JSAssign (JSVar "$result") (compile c t)])
+
+keep :: (Erasure, a) -> Bool
+keep (EKeep, _) = True
+keep (EErase _, _) = False
 
 curriedNames :: [Ident] -> [JSIdent]
 curriedNames = go S.empty 1 where
