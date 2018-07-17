@@ -21,9 +21,9 @@ class Compile f a | f -> a where
   compile :: [JSExpr] -> f 'Annotated -> a
 
 instance Compile TermX JSExpr where
-  compile c (ALet ctxt t) = JSCall (JSFun [] (body c ctxt t)) [] where
+  compile c (ALet ctxt t) = JSCall (JSFun [] (concat $ body c ctxt t)) [] where
     body c (s:rest) t = let (c', s') = compile c s in s':(body c' rest t)
-    body c [] t = [JSReturn (compile c t)]
+    body c [] t = [[JSReturn (compile c t)]]
 
   compile c (AVar i _) = c !! i
 
@@ -98,20 +98,20 @@ instance Compile TermX JSExpr where
   compile _ (ARec _) = JSUndefined
   compile _ (ALift _) = JSUndefined
 
-instance Compile Stmt ([JSExpr], JSStmt) where
-  compile c (Declare x _) = ((jsVar x):c, JSLet (jsIdent x) Nothing)
-  compile c (Define x t) = (c, JSExprStmt $ JSAssign (jsVar x) (compile c t))
+instance Compile Stmt ([JSExpr], [JSStmt]) where
+  compile c (Declare x _) = ((jsVar x):c, [JSLet (jsIdent x) Nothing])
+  compile c (Define x t) = (c, [JSExprStmt $ JSAssign (jsVar x) (compile c t)])
   compile c (DeclareDefine x _ (APolyLam a t)) =
     ((jsVar x):c, go ((jsVar x):c) [] a t) where
-      go :: [JSExpr] -> [JSIdent] -> Arity -> ATerm -> JSStmt
+      go :: [JSExpr] -> [JSIdent] -> Arity -> ATerm -> [JSStmt]
       go c args AZ t =
-        JSFunDef (jsIdent x) (reverse args) [JSReturn $ compile c t]
+        [JSFunDef (jsIdent x) (reverse args) [JSReturn $ compile c t]]
       go c args (AS x a) t = go ((jsVar x):c) ((jsIdent x):args) a t
   compile c (DeclareDefine x _ t) =
-    ((jsVar x):c, JSLet (jsIdent x) (Just $ compile ((jsVar x):c) t))
+    ((jsVar x):c, [JSLet (jsIdent x) (Just $ compile ((jsVar x):c) t)])
 
 compileProgram :: [Stmt 'Annotated] -> [JSStmt]
-compileProgram = go [] [] where 
+compileProgram = concat . go [] [] where 
   go c p (s:rest) = let (c', s') = compile c s in go c' (s':p) rest
   go _ p [] = reverse p
 

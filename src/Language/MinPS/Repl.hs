@@ -192,8 +192,8 @@ replCompile (Just line) = case P.parse (P.only P.stmt) "stdin" line of
     names <- gets (fmap fst . replScope)
     env <- gets replEnv
     let (_, s'') = evalState (annotateStmt names s') env
-    let (_, s''') = compile (jsVar <$> names) s''
-    replPutTextLn $ emit s'''
+    let (_, js) = compile (jsVar <$> names) s''
+    mapM_ (replPutTextLn . emit) js
 
 replCompileFile :: Maybe T.Text -> Repl ()
 replCompileFile Nothing = replPutStrLn "Usage: :compilefile filename"
