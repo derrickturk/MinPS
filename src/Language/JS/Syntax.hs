@@ -27,6 +27,7 @@ data JSUnOp =
 
 data JSBinOp =
     JSEq
+  | JSNEq
   | JSAnd
   | JSOr
   deriving (Eq, Show)
@@ -158,6 +159,7 @@ emitUnOp JSPostDecr e = "(" <> e <> ")--"
 
 emitBinOp :: JSBinOp -> T.Text
 emitBinOp JSEq = " === "
+emitBinOp JSNEq = " !== "
 emitBinOp JSAnd = " && "
 emitBinOp JSOr = " || "
 

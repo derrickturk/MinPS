@@ -53,9 +53,14 @@ instance Compile TermX JSExpr where
         nonNull = case nonNullLabel repr null of
           Just l -> l
           _ -> error "internal error: invalid EnumRepr for NullableRepr"
-        discrim = JSCond (JSBinOpApp JSEq t' JSNull)
-                         (compile c (AEnumLabel repr null))
-                         (compile c (AEnumLabel repr nonNull))
+        isNull = JSBinOpApp JSEq t' JSNull
+        discrim = case
+          ( compile c (AEnumLabel repr null)
+          , compile c (AEnumLabel repr nonNull)
+          ) of
+            (JSBool True, JSBool False) -> isNull
+            (JSBool False, JSBool True) -> JSBinOpApp JSNEq t' JSNull
+            (rNull, rNonNull) -> JSCond isNull rNull rNonNull
         c' = (JSIndex t' (JSInt 0)):discrim:c in
         compile c' u
 
