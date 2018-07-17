@@ -27,7 +27,14 @@ instance Compile TermX JSExpr where
 
   compile c (AVar i _) = c !! i
 
-  compile c (APair t u) = JSArr [compile c t, compile c u]
+  compile c (APair PairRepr t u) = JSArr [compile c t, compile c u]
+  compile c (APair (NullableRepr null _) (AEnumLabel _ l) u)
+    | l == null = JSNull
+    | otherwise = JSArr [compile c u]
+  compile c (APair (NullableRepr null repr) t u) = 
+    JSCond (JSBinOpApp JSEq (compile c t) (compile c (AEnumLabel repr null)))
+            JSNull
+            (JSArr [(compile c u)])
 
   compile _ (AEnumLabel (_, reprs) l) = reprs M.! l
 
@@ -37,9 +44,19 @@ instance Compile TermX JSExpr where
   compile c (AFold t) = compile c t
 
   -- TODO: we could introduce a temporary
-  compile c (ASplit t _ _ u) =
+  compile c (ASplit PairRepr t _ _ u) =
     let t' = compile c t
         c' = (JSIndex t' (JSInt 1)):(JSIndex t' (JSInt 0)):c in
+        compile c' u
+  compile c (ASplit (NullableRepr null repr) t _ _ u) =
+    let t' = compile c t
+        nonNull = case nonNullLabel repr null of
+          Just l -> l
+          _ -> error "internal error: invalid EnumRepr for NullableRepr"
+        discrim = JSCond (JSBinOpApp JSEq t' JSNull)
+                         (compile c (AEnumLabel repr null))
+                         (compile c (AEnumLabel repr nonNull))
+        c' = (JSIndex t' (JSInt 0)):discrim:c in
         compile c' u
 
   compile c (ACase (VoidRepr, _) t _) = JSComma (compile c t) JSUndefined

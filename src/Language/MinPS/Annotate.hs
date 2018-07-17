@@ -8,12 +8,14 @@ module Language.MinPS.Annotate (
   , EnumRepr
   , LabelRepr(..)
   , LabelMap
+  , PairRepr(..)
   , Saturation(..)
   , annotate
   , annotate'
   , annotateStmt
   , annotateContext
   , annotateProgram
+  , nonNullLabel
 
   , pattern ALet
   , pattern AType
@@ -65,6 +67,11 @@ type LabelMap = M.Map Label JSExpr
 
 type EnumRepr = (LabelRepr, LabelMap)
 
+data PairRepr =
+    PairRepr
+  | NullableRepr Label EnumRepr
+  deriving (Eq, Show)
+
 data Saturation =
     Saturated
   | Unsaturated [Ident]
@@ -83,16 +90,16 @@ type instance XType 'Annotated = ()
 type instance XVar 'Annotated = Int -- de Bruijn indices; probably, eventually, do an occurs check here
 type instance XPi 'Annotated = Arity
 type instance XSigma 'Annotated = Arity -- let's do it and see what happens
-type instance XLam 'Annotated = Void -- must be rewritted to PolyLams
-type instance XPair 'Annotated = ()
+type instance XLam 'Annotated = Void -- must be rewritten to PolyLams
+type instance XPair 'Annotated = PairRepr
 type instance XEnum 'Annotated = EnumRepr
 type instance XEnumLabel 'Annotated = EnumRepr
 type instance XLift 'Annotated = ()
 type instance XBox 'Annotated = ()
 type instance XRec 'Annotated = ()
 type instance XFold 'Annotated = ()
-type instance XApp 'Annotated = Void -- these must be rewritted to SatApps
-type instance XSplit 'Annotated = ()
+type instance XApp 'Annotated = Void -- these must be rewritten to SatApps
+type instance XSplit 'Annotated = PairRepr
 type instance XCase 'Annotated = EnumRepr
 type instance XForce 'Annotated = ()
 type instance XUnfold 'Annotated = () -- might distinguish unfold which create new bindings from those that shadow
@@ -113,8 +120,8 @@ pattern APi a x ty t = Pi a x ty t
 pattern ASigma :: Arity -> Ident -> ATerm -> ATerm -> ATerm
 pattern ASigma a x ty t = Sigma a x ty t
 
-pattern APair :: ATerm -> ATerm -> ATerm
-pattern APair t u = Pair () t u
+pattern APair :: PairRepr -> ATerm -> ATerm -> ATerm
+pattern APair r t u = Pair r t u
 
 pattern AEnum :: EnumRepr -> [Label] -> ATerm
 pattern AEnum erep lbls = Enum erep lbls
@@ -134,8 +141,8 @@ pattern ARec ty = Rec () ty
 pattern AFold :: ATerm -> ATerm
 pattern AFold t = Fold () t
 
-pattern ASplit :: ATerm -> Ident -> Ident -> ATerm -> ATerm
-pattern ASplit t x y u = Split () t x y u
+pattern ASplit :: PairRepr -> ATerm -> Ident -> Ident -> ATerm -> ATerm
+pattern ASplit r t x y u = Split r t x y u
 
 pattern ACase :: EnumRepr -> ATerm -> [(Label, ATerm)] -> ATerm
 pattern ACase erep t cases = Case erep t cases
@@ -187,7 +194,12 @@ annotate' s sig@(KSigma _ x t u) = do
 annotate' s lam@(KLam _ _ _) = foldLam s lam >>= \(a, body)
   -> pure (APolyLam a body)
 
-annotate' s (KPair _ t u) = APair <$> annotate' s t <*> annotate' s u
+annotate' s (KPair ty t u) = do
+  ty' <- eval' ty
+  repr <- case ty' of
+    VSigma x ((ty, t) :@ c) -> pairRepr (CSigma x ty t :@ c)
+    _ -> pure PairRepr
+  APair repr <$> annotate' s t <*> annotate' s u
 
 annotate' _ (KEnum _ lbls) = pure $ AEnum (enumRepr lbls) lbls
 
@@ -203,10 +215,15 @@ annotate' s (KFold _ t) = AFold <$> annotate' s t
 
 annotate' s (KApp _ f x) = foldApp s f x
 
-annotate' s (KSplit _ t x y u) = ASplit <$> annotate' s t
-                                        <*> pure x
-                                        <*> pure y
-                                        <*> annotate' (y:x:s) u
+annotate' s (KSplit _ t x y u) = do
+  tTy <- eval' (typeOf t)
+  repr <- case tTy of
+    VSigma x ((ty, t) :@ c) -> pairRepr (CSigma x ty t :@ c)
+    _ -> pure PairRepr
+  ASplit repr <$> annotate' s t
+              <*> pure x
+              <*> pure y
+              <*> annotate' (y:x:s) u
 
 annotate' s (KCase _ t cases) =
   ACase (enumRepr $ fst <$> cases) <$> annotate' s t
@@ -249,6 +266,12 @@ annotateProgram :: MonadState Env m
                 m (Context 'Annotated)
 annotateProgram = (fmap snd) . annotateContext []
 
+nonNullLabel :: EnumRepr -> Label -> Maybe Label
+nonNullLabel (BoolRepr, m) null = case M.toList (M.delete null m) of
+  [(l, _)] -> Just l
+  _ -> Nothing
+nonNullLabel _ _ = Nothing
+
 piArity :: CTerm -> Arity
 piArity (CPi x _ r) = AS x (piArity r)
 piArity _ = AZ
@@ -256,6 +279,21 @@ piArity _ = AZ
 sigmaArity :: CTerm -> Arity
 sigmaArity (CSigma x _ r) = AS x (sigmaArity r)
 sigmaArity _ = AZ
+
+pairRepr :: MonadState Env m => Closure CTerm -> m PairRepr
+pairRepr (CSigma x ty r :@ c) = eval' (ty :@ c) >>= \case
+  VEnum lbls@[_, _] -> case r of
+    CCase (CVar y) [(l1, r1), (l2, r2)] | x == y -> do
+      i <- declareE x (Just (ty :@ c))
+      r1' <- eval' (r1 :@ (x, i):c)
+      r2' <- eval' (r2 :@ (x, i):c)
+      case (r1', r2') of
+        (VEnum [_], _) -> pure $ NullableRepr l1 (enumRepr lbls)
+        (_, VEnum [_]) -> pure $ NullableRepr l2 (enumRepr lbls)
+        _ -> pure PairRepr
+    _ -> pure PairRepr
+  _ -> pure PairRepr
+pairRepr _ = pure PairRepr
 
 foldLam :: MonadState Env m => [Ident] -> KTerm -> m (Arity, ATerm)
 foldLam s (KLam _ x body) = do
