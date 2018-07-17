@@ -37,7 +37,7 @@ module Language.MinPS.Annotate (
 
 import Control.Monad.State
 import Data.Void
-import Data.List (elemIndex)
+import Data.List (elemIndex, sort)
 import qualified Data.Map.Strict as M
 
 import Language.MinPS.Syntax
@@ -194,7 +194,7 @@ annotate' _ (KEnum _ lbls) = pure $ AEnum (enumRepr lbls) lbls
 -- TODO: raw, eval, or normalize here?
 annotate' _ (KEnumLabel ty l) = eval' ty >>= \case
   VEnum lbls -> pure $ AEnumLabel (enumRepr lbls) l
-  _ -> error "internal error: expected enum type (annotating label)"
+  v -> error $ "internal error: expected enum type (annotating label); got " ++ show v
 
 annotate' s (KLift _ t) = ALift <$> annotate' s t
 annotate' s (KBox _ t) = ABox <$> annotate' s t
@@ -208,10 +208,9 @@ annotate' s (KSplit _ t x y u) = ASplit <$> annotate' s t
                                         <*> pure y
                                         <*> annotate' (y:x:s) u
 
-annotate' s (KCase _ t cases) = eval' (typeOf t) >>= \case
-  VEnum lbls -> ACase (enumRepr lbls) <$> annotate' s t
-                                      <*> traverse annotateCase cases
-  _ -> error "internal error: expected enum type (annotating case)"
+annotate' s (KCase _ t cases) =
+  ACase (enumRepr $ fst <$> cases) <$> annotate' s t
+                                   <*> traverse annotateCase cases
   where
     annotateCase (l, u) = (,) <$> pure l <*> annotate' s u
 
@@ -265,11 +264,12 @@ foldLam s (KLam _ x body) = do
 foldLam s t = (,) <$> pure AZ <*> annotate' s t
 
 enumRepr :: [Label] -> EnumRepr
-enumRepr [] = (VoidRepr, M.empty)
-enumRepr [unit] = (UnitRepr, M.singleton unit JSNull)
-enumRepr [false, true] =
-  (BoolRepr, M.fromList [(false, JSBool False), (true, JSBool True)])
-enumRepr ls = (IntRepr, M.fromList (zip ls (JSInt <$> [0..])))
+enumRepr = enumRepr' . sort where
+  enumRepr' [] = (VoidRepr, M.empty)
+  enumRepr' [unit] = (UnitRepr, M.singleton unit JSNull)
+  enumRepr' [false, true] =
+    (BoolRepr, M.fromList [(false, JSBool False), (true, JSBool True)])
+  enumRepr' ls = (IntRepr, M.fromList (zip ls (JSInt <$> [0..])))
 
 foldApp :: MonadState Env m => [Ident] -> KTerm -> KTerm -> m ATerm
 foldApp s t u = do
