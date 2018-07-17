@@ -101,6 +101,12 @@ instance Compile TermX JSExpr where
 instance Compile Stmt ([JSExpr], JSStmt) where
   compile c (Declare x _) = ((jsVar x):c, JSLet (jsIdent x) Nothing)
   compile c (Define x t) = (c, JSExprStmt $ JSAssign (jsVar x) (compile c t))
+  compile c (DeclareDefine x _ (APolyLam a t)) =
+    ((jsVar x):c, go ((jsVar x):c) [] a t) where
+      go :: [JSExpr] -> [JSIdent] -> Arity -> ATerm -> JSStmt
+      go c args AZ t =
+        JSFunDef (jsIdent x) (reverse args) [JSReturn $ compile c t]
+      go c args (AS x a) t = go ((jsVar x):c) ((jsIdent x):args) a t
   compile c (DeclareDefine x _ t) =
     ((jsVar x):c, JSLet (jsIdent x) (Just $ compile ((jsVar x):c) t))
 
