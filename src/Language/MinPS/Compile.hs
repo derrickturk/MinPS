@@ -21,6 +21,8 @@ class Compile f a | f -> a where
   compile :: [JSExpr] -> f 'Annotated -> a
 
 instance Compile TermX JSExpr where
+  compile _ (AErased _) = JSUndefined
+
   compile c (ALet ctxt t) = JSCall (JSFun [] (concat $ body c ctxt t)) [] where
     body c (s:rest) t = let (c', s') = compile c s in s':(body c' rest t)
     body c [] t = [[JSReturn (compile c t)]]
@@ -81,7 +83,7 @@ instance Compile TermX JSExpr where
   compile c (APolyLam a t) = go c [] a t where
     go :: [JSExpr] -> [JSIdent] -> Arity -> ATerm -> JSExpr
     go c args AZ t = JSLam (reverse args) (compile c t)
-    go c args (AS x a) t = go ((jsVar x):c) ((jsIdent x):args) a t
+    go c args (AS x _ a) t = go ((jsVar x):c) ((jsIdent x):args) a t
 
   compile c (ASatApp Saturated f args) =
     JSCall (compile c f) (compile c <$> args)
@@ -90,23 +92,30 @@ instance Compile TermX JSExpr where
       JSLam rest'
         (JSCall (compile c f) ((compile c <$> args) ++ (JSVar <$> rest')))
 
-  -- TODO: erasure (or handle in annotation)
-  compile _ (AType) = JSUndefined
-  compile _ (APi _ _ _ _) = JSUndefined
-  compile _ (ASigma _ _ _ _) = JSUndefined
-  compile _ (AEnum _ _) = JSUndefined
-  compile _ (ARec _) = JSUndefined
-  compile _ (ALift _) = JSUndefined
-
 instance Compile Stmt ([JSExpr], [JSStmt]) where
+  -- named function definitions will get hoisted, so we can skip the
+  --   pre-declaration...
+  compile c (Declare x (AErased ETypeType)) = ((jsVar x):c, [])
+  compile c (Declare x (AErased (EPiType _))) = ((jsVar x):c, [])
   compile c (Declare x _) = ((jsVar x):c, [JSLet (jsIdent x) Nothing])
+
+  -- and just emit the definition
+  compile c (Define _ (AErased _)) = (c, [])
+  compile c (Define x (APolyLam a t)) =
+    (c, go c [] a t) where
+      go :: [JSExpr] -> [JSIdent] -> Arity -> ATerm -> [JSStmt]
+      go c args AZ t =
+        [JSFunDef (jsIdent x) (reverse args) [JSReturn $ compile c t]]
+      go c args (AS x _ a) t = go ((jsVar x):c) ((jsIdent x):args) a t
   compile c (Define x t) = (c, [JSExprStmt $ JSAssign (jsVar x) (compile c t)])
+
+  compile c (DeclareDefine _ _ (AErased _)) = (c, [])
   compile c (DeclareDefine x _ (APolyLam a t)) =
     ((jsVar x):c, go ((jsVar x):c) [] a t) where
       go :: [JSExpr] -> [JSIdent] -> Arity -> ATerm -> [JSStmt]
       go c args AZ t =
         [JSFunDef (jsIdent x) (reverse args) [JSReturn $ compile c t]]
-      go c args (AS x a) t = go ((jsVar x):c) ((jsIdent x):args) a t
+      go c args (AS x _ a) t = go ((jsVar x):c) ((jsIdent x):args) a t
   compile c (DeclareDefine x _ t) =
     ((jsVar x):c, [JSLet (jsIdent x) (Just $ compile ((jsVar x):c) t)])
 

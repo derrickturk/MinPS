@@ -10,6 +10,8 @@ module Language.MinPS.Annotate (
   , LabelMap
   , PairRepr(..)
   , Saturation(..)
+  , Erasure(..)
+  , ErasureKind(..)
   , annotate
   , annotate'
   , annotateStmt
@@ -18,16 +20,10 @@ module Language.MinPS.Annotate (
   , nonNullLabel
 
   , pattern ALet
-  , pattern AType
   , pattern AVar
-  , pattern APi
-  , pattern ASigma
   , pattern APair
-  , pattern AEnum
   , pattern AEnumLabel
-  , pattern ALift
   , pattern ABox
-  , pattern ARec
   , pattern AFold
   , pattern ASplit
   , pattern ACase
@@ -35,6 +31,7 @@ module Language.MinPS.Annotate (
   , pattern AUnfold
   , pattern APolyLam
   , pattern ASatApp
+  , pattern AErased
 ) where
 
 import Control.Monad.State
@@ -53,7 +50,7 @@ type ATerm = TermX 'Annotated
 
 data Arity =
     AZ
-  | AS Ident Arity
+  | AS Ident Erasure Arity
   deriving (Eq, Show)
 
 data LabelRepr =
@@ -77,26 +74,35 @@ data Saturation =
   | Unsaturated [Ident]
   deriving (Eq, Show)
 
+data Erasure =
+    ShouldNotErase
+  | ShouldErase ErasureKind
+  deriving (Eq, Show)
+
+data ErasureKind =
+    EPiType Erasure
+  | ENonPiType
+  | ETypeType
+  deriving (Eq, Show)
+
 data Rewrite =
     PolyLam Arity ATerm -- rewrite nested lambdas to polyadic fns
   | SatApp Saturation ATerm [ATerm] -- rewrite nested application
+  | Erased ErasureKind -- an erased term
   deriving (Eq, Show)
 
--- dunno what to do with pairs yet
--- TODO: erasure annotation (e.g. Type)
-
 type instance XLet 'Annotated = ()
-type instance XType 'Annotated = ()
+type instance XType 'Annotated = Void -- should be erased
 type instance XVar 'Annotated = Int -- de Bruijn indices; probably, eventually, do an occurs check here
-type instance XPi 'Annotated = Arity
-type instance XSigma 'Annotated = Arity -- let's do it and see what happens
+type instance XPi 'Annotated = Void
+type instance XSigma 'Annotated = Void -- let's do it and see what happens
 type instance XLam 'Annotated = Void -- must be rewritten to PolyLams
 type instance XPair 'Annotated = PairRepr
-type instance XEnum 'Annotated = EnumRepr
+type instance XEnum 'Annotated = Void
 type instance XEnumLabel 'Annotated = EnumRepr
-type instance XLift 'Annotated = ()
+type instance XLift 'Annotated = Void -- should be erased
 type instance XBox 'Annotated = ()
-type instance XRec 'Annotated = ()
+type instance XRec 'Annotated = Void -- should be erased
 type instance XFold 'Annotated = ()
 type instance XApp 'Annotated = Void -- these must be rewritten to SatApps
 type instance XSplit 'Annotated = PairRepr
@@ -108,35 +114,17 @@ type instance XTerm 'Annotated = Rewrite
 pattern ALet :: Context 'Annotated -> ATerm -> ATerm
 pattern ALet ctxt t = Let () ctxt t
 
-pattern AType :: ATerm
-pattern AType = Type ()
-
 pattern AVar :: Int -> Ident -> ATerm
 pattern AVar i x = Var i x
-
-pattern APi :: Arity -> Ident -> ATerm -> ATerm -> ATerm
-pattern APi a x ty t = Pi a x ty t
-
-pattern ASigma :: Arity -> Ident -> ATerm -> ATerm -> ATerm
-pattern ASigma a x ty t = Sigma a x ty t
 
 pattern APair :: PairRepr -> ATerm -> ATerm -> ATerm
 pattern APair r t u = Pair r t u
 
-pattern AEnum :: EnumRepr -> [Label] -> ATerm
-pattern AEnum erep lbls = Enum erep lbls
-
 pattern AEnumLabel :: EnumRepr -> Label -> ATerm
 pattern AEnumLabel erep l = EnumLabel erep l
 
-pattern ALift :: ATerm -> ATerm
-pattern ALift ty = Lift () ty
-
 pattern ABox :: ATerm -> ATerm
 pattern ABox t = Box () t
-
-pattern ARec :: ATerm -> ATerm
-pattern ARec ty = Rec () ty
 
 pattern AFold :: ATerm -> ATerm
 pattern AFold t = Fold () t
@@ -159,40 +147,38 @@ pattern APolyLam a t = TermX (PolyLam a t)
 pattern ASatApp :: Saturation -> ATerm -> [ATerm] -> ATerm
 pattern ASatApp s f xs = TermX (SatApp s f xs)
 
-{-# COMPLETE ALet, AType, AVar, APi, ASigma,
-   APair, AEnum, AEnumLabel, ALift, ABox, ARec,
-   AFold, ASplit, ACase, AForce, AUnfold, APolyLam, ASatApp #-}
+pattern AErased :: ErasureKind -> ATerm
+pattern AErased e = TermX (Erased e)
+
+{-# COMPLETE ALet, AVar, APair, AEnumLabel, ABox, AFold, ASplit,
+             ACase, AForce, AUnfold, APolyLam, ASatApp, AErased #-}
 
 annotate :: MonadState Env m => KTerm -> m ATerm
 annotate = annotate' []
 
 annotate' :: MonadState Env m => [Ident] -> KTerm -> m ATerm
+annotate' _ (KType _) = pure $ AErased ETypeType
+annotate' _ pi@(KPi _ _ _ _) =
+  pure $ AErased $ EPiType $ piShouldErase (forget pi)
+annotate' _ (KSigma _ _ _ _) = pure $ AErased ENonPiType
+annotate' _ (KEnum _ _) = pure $ AErased ENonPiType
+annotate' _ (KLift _ _) = pure $ AErased ENonPiType
+annotate' _ (KRec _ _) = pure  $ AErased ENonPiType
+
 annotate' s (KLet _ ctxt t) = do
   (s', ctxt') <- annotateContext s ctxt
   t' <- annotate' s' t
   pure $ ALet ctxt' t'
 
-annotate' _ (KType _) = pure AType
-
 annotate' s (KVar _ v) = case elemIndex v s of
   Just i -> pure $ AVar i v
   _ -> error "internal error: unbound var in annotation"
 
--- TODO: these should probably just end up erased 
-annotate' s py@(KPi _ x ty t) = do
-  let arity = piArity (forget py)
-  ty' <- annotate' s ty
-  t' <- annotate' (x:s) t
-  pure $ APi arity x ty' t'
-
-annotate' s sig@(KSigma _ x t u) = do
-  let arity = sigmaArity (forget sig)
-  t' <- annotate' s t
-  u' <- annotate' (x:s) u
-  pure $ ASigma arity x t' u'
-
-annotate' s lam@(KLam _ _ _) = foldLam s lam >>= \(a, body)
-  -> pure (APolyLam a body)
+annotate' s lam@(KLam ty _ _) = eval' ty >>= \case
+  VPi x ((ty, t) :@ _) -> case piShouldErase (CPi x ty t) of
+    ShouldErase e -> pure $ AErased e -- a bit of a lie
+    ShouldNotErase -> foldLam s lam >>= \(a, body) -> pure (APolyLam a body)
+  _ -> error $ "internal error: non-pi-type lambda"
 
 annotate' s (KPair ty t u) = do
   ty' <- eval' ty
@@ -201,16 +187,12 @@ annotate' s (KPair ty t u) = do
     _ -> pure PairRepr
   APair repr <$> annotate' s t <*> annotate' s u
 
-annotate' _ (KEnum _ lbls) = pure $ AEnum (enumRepr lbls) lbls
-
 -- TODO: raw, eval, or normalize here?
 annotate' _ (KEnumLabel ty l) = eval' ty >>= \case
   VEnum lbls -> pure $ AEnumLabel (enumRepr lbls) l
   _ -> error $ "internal error: expected enum type (annotating label)"
 
-annotate' s (KLift _ t) = ALift <$> annotate' s t
 annotate' s (KBox _ t) = ABox <$> annotate' s t
-annotate' s (KRec _ t) = ARec <$> annotate' s t
 annotate' s (KFold _ t) = AFold <$> annotate' s t
 
 annotate' s (KApp _ f x) = foldApp s f x
@@ -273,12 +255,32 @@ nonNullLabel (BoolRepr, m) null = case M.toList (M.delete null m) of
 nonNullLabel _ _ = Nothing
 
 piArity :: CTerm -> Arity
-piArity (CPi x _ r) = AS x (piArity r)
+piArity (CPi x ty t) = AS x (typeShouldErase ty) (piArity t)
 piArity _ = AZ
 
+piShouldErase :: CTerm -> Erasure
+piShouldErase CType = ShouldErase ETypeType
+piShouldErase (CPi _ _ t) = piShouldErase t
+piShouldErase _ = ShouldNotErase
+
+{-
 sigmaArity :: CTerm -> Arity
 sigmaArity (CSigma x _ r) = AS x (sigmaArity r)
 sigmaArity _ = AZ
+-}
+
+typeShouldErase :: CTerm -> Erasure
+typeShouldErase CType = ShouldErase ETypeType
+typeShouldErase pi@(CPi _ _ _) = piShouldErase pi
+typeShouldErase (CLift _) = ShouldErase ETypeType -- TODO: a lie
+typeShouldErase _ = ShouldNotErase
+
+termShouldErase :: MonadState Env m => KTerm -> m Erasure
+termShouldErase t = eval' (typeOf t) >>= \case
+  VType -> pure $ ShouldErase ETypeType
+  VPi x ((ty, t) :@ _) -> pure $ piShouldErase (CPi x ty t)
+  VLift _ -> pure $ ShouldErase ETypeType
+  _ -> pure ShouldNotErase
 
 pairRepr :: MonadState Env m => Closure CTerm -> m PairRepr
 pairRepr (CSigma x ty r :@ c) = eval' (ty :@ c) >>= \case
@@ -304,9 +306,13 @@ pairRepr (CSigma x ty r :@ c) = eval' (ty :@ c) >>= \case
 pairRepr _ = pure PairRepr
 
 foldLam :: MonadState Env m => [Ident] -> KTerm -> m (Arity, ATerm)
-foldLam s (KLam _ x body) = do
-  (a, result) <- foldLam (x:s) body
-  pure (AS x a, result)
+foldLam s (KLam ty x body) = do
+  ty' <- eval' ty
+  case ty' of
+    VPi _ ((ty, _) :@ _) -> do
+      (a, result) <- foldLam (x:s) body
+      pure (AS x (typeShouldErase ty) a, result)
+    _ -> error "internal error: non-pi-type lambda"
 foldLam s t = (,) <$> pure AZ <*> annotate' s t
 
 enumRepr :: [Label] -> EnumRepr
@@ -325,17 +331,17 @@ foldApp s t u = do
     outerPi (KApp _ f _) = outerPi f
     outerPi f = eval' (typeOf f) >>= normalize
 
-    go (AS _ a) (KApp _ f x) y xs = go a f x (y:xs)
-    go (AS _ AZ) f x xs =
+    go (AS _ _ a) (KApp _ f x) y xs = go a f x (y:xs)
+    go (AS _ _ AZ) f x xs =
       ASatApp Saturated <$> annotate' s f
                         <*> traverse (annotate' s) (x:xs)
-    go (AS _ rest) f x xs =
+    go (AS _ _ rest) f x xs =
       ASatApp (Unsaturated (names rest)) <$> annotate' s f
                                          <*> traverse (annotate' s) (x:xs)
     go AZ _ _ _ = error "internal error: zero-arity function application"
 
     names AZ = []
-    names (AS n a) = n:(names a)
+    names (AS n _ a) = n:(names a)
 
 -- YES I KNOW THEY'RE ORPHANS
 deriving instance Show (TermX 'Annotated)
