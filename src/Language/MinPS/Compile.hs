@@ -23,9 +23,7 @@ class Compile f a | f -> a where
 instance Compile TermX JSExpr where
   compile _ (AErased _) = JSUndefined
 
-  compile c (ALet ctxt t) = JSCall (JSFun [] (concat $ body c ctxt t)) [] where
-    body c (s:rest) t = let (c', s') = compile c s in s':(body c' rest t)
-    body c [] t = [[JSReturn (compile c t)]]
+  compile c (ALet ctxt t) = JSCall (JSFun [] (letBody c ctxt t)) []
 
   compile c (AVar i _) = c !! i
 
@@ -80,8 +78,11 @@ instance Compile TermX JSExpr where
     _ -> JSCall (JSLam [jsIdent x] (compile ((jsVar x):c) u)) [compile c t]
 
   -- TODO: handle shadowing etc etc
+  compile c (APolyLam a (ALet ctxt t)) = go c [] a t where
+    go c args AZ t = JSFun (reverse args) (letBody c ctxt t)
+    go c args (AS x EKeep a) t = go ((jsVar x):c) ((jsIdent x):args) a t
+    go c args (AS x (EErase _) a) t = go ((jsVar x):c) args a t
   compile c (APolyLam a t) = go c [] a t where
-    go :: [JSExpr] -> [JSIdent] -> Arity -> ATerm -> JSExpr
     go c args AZ t = JSLam (reverse args) (compile c t)
     go c args (AS x EKeep a) t = go ((jsVar x):c) ((jsIdent x):args) a t
     go c args (AS x (EErase _) a) t = go ((jsVar x):c) args a t
@@ -103,9 +104,14 @@ instance Compile Stmt ([JSExpr], [JSStmt]) where
 
   -- and just emit the definition
   compile c (Define _ (AErased _)) = (c, [])
+  compile c (Define x (APolyLam a (ALet ctxt t))) =
+    (c, go c [] a t) where
+      go c args AZ t =
+        [JSFunDef (jsIdent x) (reverse args) (letBody c ctxt t)]
+      go c args (AS x EKeep a) t = go ((jsVar x):c) ((jsIdent x):args) a t
+      go c args (AS x (EErase _) a) t = go ((jsVar x):c) args a t
   compile c (Define x (APolyLam a t)) =
     (c, go c [] a t) where
-      go :: [JSExpr] -> [JSIdent] -> Arity -> ATerm -> [JSStmt]
       go c args AZ t =
         [JSFunDef (jsIdent x) (reverse args) [JSReturn $ compile c t]]
       go c args (AS x EKeep a) t = go ((jsVar x):c) ((jsIdent x):args) a t
@@ -113,9 +119,14 @@ instance Compile Stmt ([JSExpr], [JSStmt]) where
   compile c (Define x t) = (c, [JSExprStmt $ JSAssign (jsVar x) (compile c t)])
 
   compile c (DeclareDefine _ _ (AErased _)) = (c, [])
+  compile c (DeclareDefine x _ (APolyLam a (ALet ctxt t))) =
+    ((jsVar x):c, go ((jsVar x):c) [] a t) where
+      go c args AZ t =
+        [JSFunDef (jsIdent x) (reverse args) (letBody c ctxt t)]
+      go c args (AS x EKeep a) t = go ((jsVar x):c) ((jsIdent x):args) a t
+      go c args (AS x (EErase _) a) t = go ((jsVar x):c) args a t
   compile c (DeclareDefine x _ (APolyLam a t)) =
     ((jsVar x):c, go ((jsVar x):c) [] a t) where
-      go :: [JSExpr] -> [JSIdent] -> Arity -> ATerm -> [JSStmt]
       go c args AZ t =
         [JSFunDef (jsIdent x) (reverse args) [JSReturn $ compile c t]]
       go c args (AS x EKeep a) t = go ((jsVar x):c) ((jsIdent x):args) a t
@@ -156,6 +167,11 @@ intCases c t m cases =
 keep :: (Erasure, a) -> Bool
 keep (EKeep, _) = True
 keep (EErase _, _) = False
+
+letBody :: [JSExpr] -> [Stmt 'Annotated] -> ATerm -> [JSStmt]
+letBody c ctxt t = concat (body c ctxt t) where
+  body c (s:rest) t = let (c', s') = compile c s in s':(body c' rest t)
+  body c [] t = [[JSReturn (compile c t)]]
 
 curriedNames :: [Ident] -> [JSIdent]
 curriedNames = go S.empty 1 where
