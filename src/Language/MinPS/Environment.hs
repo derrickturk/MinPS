@@ -50,7 +50,7 @@ data EnvEntry = EnvEntry { envName :: Ident
 data Constraints =
     Inconsistent
   | Constraints [(Neutral, Label)]
-  deriving Show
+  deriving (Show, Eq)
 
 data Env = Env { getEnv :: S.Seq EnvEntry
                , getConstraints :: Constraints

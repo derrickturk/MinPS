@@ -12,10 +12,8 @@ module Language.MinPS.Syntax (
   , TermX(..)
   , UTerm
   , CTerm
-  , KTerm
   , ReplCommand(..)
   , Forget(..)
-  , typeOf
 
   , XLet
   , XType
@@ -74,25 +72,6 @@ module Language.MinPS.Syntax (
   , pattern CCase
   , pattern CForce
   , pattern CUnfold
-
-  , pattern KLet
-  , pattern KType
-  , pattern KVar
-  , pattern KPi
-  , pattern KSigma
-  , pattern KLam
-  , pattern KPair
-  , pattern KEnum
-  , pattern KEnumLabel
-  , pattern KLift
-  , pattern KBox
-  , pattern KRec
-  , pattern KFold
-  , pattern KApp
-  , pattern KSplit
-  , pattern KCase
-  , pattern KForce
-  , pattern KUnfold
 ) where
 
 import Data.Void
@@ -166,7 +145,6 @@ type family XTerm (s :: TermState)
 
 type UTerm = TermX 'Unchecked
 type CTerm = TermX 'Checked
-type KTerm = TermX 'KnownType
 
 type instance XLet 'Unchecked = ()
 type instance XType 'Unchecked = ()
@@ -324,118 +302,15 @@ pattern CUnfold t x u = Unfold () t x u
    CLam, CPair, CEnum, CEnumLabel, CLift, CBox, CRec,
    CFold, CApp, CSplit, CCase, CForce, CUnfold #-}
 
-type instance XLet 'KnownType = Closure CTerm
-type instance XType 'KnownType = Closure CTerm
-type instance XVar 'KnownType = Closure CTerm
-type instance XPi 'KnownType = Closure CTerm
-type instance XSigma 'KnownType = Closure CTerm
-type instance XLam 'KnownType = Closure CTerm
-type instance XPair 'KnownType = Closure CTerm
-type instance XEnum 'KnownType = Closure CTerm
-type instance XEnumLabel 'KnownType = Closure CTerm
-type instance XLift 'KnownType = Closure CTerm
-type instance XBox 'KnownType = Closure CTerm
-type instance XRec 'KnownType = Closure CTerm
-type instance XFold 'KnownType = Closure CTerm
-type instance XApp 'KnownType = Closure CTerm
-type instance XSplit 'KnownType = Closure CTerm
-type instance XCase 'KnownType = Closure CTerm
-type instance XForce 'KnownType = Closure CTerm
-type instance XUnfold 'KnownType = Closure CTerm
-type instance XTerm 'KnownType = Void
-
-pattern KLet :: Closure CTerm -> Context 'KnownType -> KTerm -> KTerm
-pattern KLet kTy ctxt t = Let kTy ctxt t
-
-pattern KType :: Closure CTerm -> KTerm
-pattern KType kTy = Type kTy
-
-pattern KVar :: Closure CTerm -> Ident -> KTerm
-pattern KVar kTy x = Var kTy x
-
-pattern KPi :: Closure CTerm -> Ident -> KTerm -> KTerm -> KTerm
-pattern KPi kTy x ty t = Pi kTy x ty t
-
-pattern KSigma :: Closure CTerm -> Ident -> KTerm -> KTerm -> KTerm
-pattern KSigma kTy x ty t = Sigma kTy x ty t
-
-pattern KLam :: Closure CTerm -> Ident -> KTerm -> KTerm
-pattern KLam kTy x t = Lam kTy x t
-
-pattern KPair :: Closure CTerm -> KTerm -> KTerm -> KTerm
-pattern KPair kTy t u = Pair kTy t u
-
-pattern KEnum :: Closure CTerm -> [Label] -> KTerm
-pattern KEnum kTy lbls = Enum kTy lbls
-
-pattern KEnumLabel :: Closure CTerm -> Label -> KTerm
-pattern KEnumLabel kTy l = EnumLabel kTy l
-
-pattern KLift :: Closure CTerm -> KTerm -> KTerm
-pattern KLift kTy ty = Lift kTy ty
-
-pattern KBox :: Closure CTerm -> KTerm -> KTerm
-pattern KBox kTy t = Box kTy t
-
-pattern KRec :: Closure CTerm -> KTerm -> KTerm
-pattern KRec kTy ty = Rec kTy ty
-
-pattern KFold :: Closure CTerm -> KTerm -> KTerm
-pattern KFold kTy t = Fold kTy t
-
-pattern KApp :: Closure CTerm -> KTerm -> KTerm -> KTerm
-pattern KApp kTy f x = App kTy f x
-
-pattern KSplit :: Closure CTerm -> KTerm -> Ident -> Ident -> KTerm -> KTerm
-pattern KSplit kTy t x y u = Split kTy t x y u
-
-pattern KCase :: Closure CTerm -> KTerm -> [(Label, KTerm)] -> KTerm
-pattern KCase kTy t cases = Case kTy t cases
-
-pattern KForce :: Closure CTerm -> KTerm -> KTerm
-pattern KForce kTy t = Force kTy t
-
-pattern KUnfold :: Closure CTerm -> KTerm -> Ident -> KTerm -> KTerm
-pattern KUnfold kTy t x u = Unfold kTy t x u
-
-{-# COMPLETE KLet, KType, KVar, KPi, KSigma,
-   KLam, KPair, KEnum, KEnumLabel, KLift, KBox, KRec,
-   KFold, KApp, KSplit, KCase, KForce, KUnfold #-}
-
-typeOf :: KTerm -> Closure CTerm
-typeOf (KLet ty _ _) = ty
-typeOf (KType ty) = ty
-typeOf (KVar ty _) = ty
-typeOf (KPi ty _ _ _) = ty
-typeOf (KSigma ty _ _ _) = ty
-typeOf (KLam ty _ _) = ty
-typeOf (KPair ty _ _) = ty
-typeOf (KEnum ty _) = ty
-typeOf (KEnumLabel ty _) = ty
-typeOf (KLift ty _) = ty
-typeOf (KBox ty _) = ty
-typeOf (KRec ty _) = ty
-typeOf (KFold ty _) = ty
-typeOf (KApp ty _ _) = ty
-typeOf (KSplit ty _ _ _ _) = ty
-typeOf (KCase ty _ _) = ty
-typeOf (KForce ty _) = ty
-typeOf (KUnfold ty _ _ _) = ty
-typeOf (TermX v) = absurd v
-
 deriving instance Show (TermX 'Checked)
 deriving instance Show (TermX 'Unchecked)
-deriving instance Show (TermX 'KnownType)
 deriving instance Eq (TermX 'Checked)
 deriving instance Eq (TermX 'Unchecked)
-deriving instance Eq (TermX 'KnownType)
 
 deriving instance Show (Stmt 'Checked) 
 deriving instance Show (Stmt 'Unchecked) 
-deriving instance Show (Stmt 'KnownType) 
 deriving instance Eq (Stmt 'Checked)
 deriving instance Eq (Stmt 'Unchecked)
-deriving instance Eq (Stmt 'KnownType)
 
 class Forget (f :: TermState -> *) (s :: TermState) (t :: TermState) where
   forget :: f s -> f t

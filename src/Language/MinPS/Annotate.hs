@@ -42,6 +42,7 @@ import qualified Data.Map.Strict as M
 import Language.MinPS.Syntax
 import Language.MinPS.Environment
 import Language.MinPS.Eval
+import Language.MinPS.Check
 import Language.MinPS.Value
 import Language.JS.Syntax
 
@@ -156,16 +157,16 @@ annotate :: MonadState Env m => KTerm -> m ATerm
 annotate = annotate' []
 
 annotate' :: MonadState Env m => [Ident] -> KTerm -> m ATerm
-annotate' _ (KType _) = pure $ AErased EKTypeType
-annotate' _ pi@(KPi _ _ _ _) =
+annotate' _ (KType _ _) = pure $ AErased EKTypeType
+annotate' _ pi@(KPi _ _ _ _ _) =
   pure $ AErased $ EKPiType $ piShouldErase (forget pi)
-annotate' _ (KSigma _ _ _ _) = pure $ AErased EKNonPiType
-annotate' _ (KEnum _ _) = pure $ AErased EKNonPiType
-annotate' _ (KLift _ _) = pure $ AErased EKNonPiType
-annotate' _ (KRec _ _) = pure  $ AErased EKNonPiType
+annotate' _ (KSigma _ _ _ _ _) = pure $ AErased EKNonPiType
+annotate' _ (KEnum _ _ _) = pure $ AErased EKNonPiType
+annotate' _ (KLift _ _ _) = pure $ AErased EKNonPiType
+annotate' _ (KRec _ _ _) = pure  $ AErased EKNonPiType
 
-annotate' s (KLet ty ctxt t) = do
-  ty' <- eval' ty
+annotate' s (KLet ty env ctxt t) = do
+  ty' <- evalInEnv ty env
   case typeShouldEraseV ty' of
     EKeep -> do
       (s', ctxt') <- annotateContext s ctxt
@@ -173,35 +174,35 @@ annotate' s (KLet ty ctxt t) = do
       pure $ ALet ctxt' t'
     EErase e -> pure $ AErased e
 
-annotate' s (KVar _ v) = case elemIndex v s of
+annotate' s (KVar _ _ v) = case elemIndex v s of
   Just i -> pure $ AVar i v
   _ -> error "internal error: unbound var in annotation"
 
-annotate' s lam@(KLam ty _ _) = eval' ty >>= \case
+annotate' s lam@(KLam ty env _ _) = evalInEnv ty env >>= \case
   VPi x ((ty, t) :@ _) -> case piShouldErase (CPi x ty t) of
     EErase e -> pure $ AErased e -- a bit of a lie
     EKeep -> foldLam s lam >>= \(a, body) -> pure (APolyLam a body)
   _ -> error $ "internal error: non-pi-type lambda"
 
-annotate' s (KPair ty t u) = do
-  ty' <- eval' ty
+annotate' s (KPair ty env t u) = do
+  ty' <- evalInEnv ty env
   repr <- case ty' of
     VSigma x ((ty, t) :@ c) -> pairRepr (CSigma x ty t :@ c)
     _ -> pure PairRepr
   APair repr <$> annotate' s t <*> annotate' s u
 
 -- TODO: raw, eval, or normalize here?
-annotate' _ (KEnumLabel ty l) = eval' ty >>= \case
+annotate' _ (KEnumLabel ty env l) = evalInEnv ty env >>= \case
   VEnum lbls -> pure $ AEnumLabel (enumRepr lbls) l
   _ -> error $ "internal error: expected enum type (annotating label)"
 
-annotate' s (KBox _ t) = ABox <$> annotate' s t
-annotate' s (KFold _ t) = AFold <$> annotate' s t
+annotate' s (KBox _ _ t) = ABox <$> annotate' s t
+annotate' s (KFold _ _ t) = AFold <$> annotate' s t
 
-annotate' s (KApp _ f x) = foldApp s f x
+annotate' s (KApp _ _ f x) = foldApp s f x
 
-annotate' s (KSplit _ t x y u) = do
-  tTy <- eval' (typeOf t)
+annotate' s (KSplit _ _ t x y u) = do
+  tTy <- uncurry evalInEnv (typeOfE t)
   repr <- case tTy of
     VSigma x ((ty, t) :@ c) -> pairRepr (CSigma x ty t :@ c)
     _ -> pure PairRepr
@@ -210,15 +211,15 @@ annotate' s (KSplit _ t x y u) = do
               <*> pure y
               <*> annotate' (y:x:s) u
 
-annotate' s (KCase _ t cases) =
+annotate' s (KCase _ _ t cases) =
   ACase (enumRepr $ fst <$> cases) <$> annotate' s t
                                    <*> traverse annotateCase cases
   where
     annotateCase (l, u) = (,) <$> pure l <*> annotate' s u
 
-annotate' s (KForce _ t) = AForce <$> annotate' s t
+annotate' s (KForce _ _ t) = AForce <$> annotate' s t
 
-annotate' s (KUnfold _ t x u) = AUnfold <$> annotate' s t
+annotate' s (KUnfold _ _ t x u) = AUnfold <$> annotate' s t
                                         <*> pure x
                                         <*> annotate' (x:s) u
 
@@ -312,8 +313,8 @@ pairRepr (CSigma x ty r :@ c) = eval' (ty :@ c) >>= \case
 pairRepr _ = pure PairRepr
 
 foldLam :: MonadState Env m => [Ident] -> KTerm -> m (Arity, ATerm)
-foldLam s (KLam ty x body) = do
-  ty' <- eval' ty
+foldLam s (KLam ty env x body) = do
+  ty' <- evalInEnv ty env
   case ty' of
     VPi _ ((ty, _) :@ _) -> do
       (a, result) <- foldLam (x:s) body
@@ -334,10 +335,10 @@ foldApp s t u = do
   satArity <- piArity (typeOf $ outerPi t)
   go satArity t u [] []
   where
-    outerPi (KApp _ f _) = outerPi f
+    outerPi (KApp _ _ f _) = outerPi f
     outerPi f = f
 
-    go (AS _ e a) (KApp _ f x) y xs es = go a f x (y:xs) (e:es)
+    go (AS _ e a) (KApp _ _ f x) y xs es = go a f x (y:xs) (e:es)
 
     go (AS _ e AZ) f x xs es = ASatApp Saturated
       <$> annotate' s f
@@ -353,6 +354,9 @@ foldApp s t u = do
 
     names AZ = []
     names (AS n e a) = (e, n):(names a)
+
+evalInEnv :: MonadState Env m => Closure CTerm -> Env -> m Value 
+evalInEnv t env = locally (put env >> eval' t)
 
 -- YES I KNOW THEY'RE ORPHANS
 deriving instance Show (TermX 'Annotated)
