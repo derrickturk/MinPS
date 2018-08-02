@@ -399,6 +399,36 @@ foldApp s t u = do
 evalInEnv :: MonadState Env m => Closure CTerm -> Env -> m Value 
 evalInEnv t env = locally (put env >> eval' t)
 
+free :: ATerm -> S.Set Ident
+free (ALet ctxt t) = let (f, b) = freeInContext ctxt in
+  S.union f (free t S.\\ b)
+free (AVar _ x) = S.singleton x
+free (APair _ x y) = S.union (free x) (free y)
+free (AEnumLabel _ _) = S.empty
+free (ABox t) = free t
+free (AFold t) = free t
+free (ASplit _ t x y u) =
+  S.union (free t) (free u S.\\ S.fromList [x, y])
+free (ACase _ t cases) = S.union (free t) (S.unions $ free . snd <$> cases)
+free (AForce t) = free t
+free (AUnfold t x u) = S.union (free t) (free u S.\\ S.singleton x)
+free (APolyLam a t) = free t S.\\ bound a where
+  bound AZ = S.empty
+  bound (AS x _ a) = S.insert x (bound a)
+free (ASatApp _ f xs) = S.union (free f) (S.unions $ free . snd <$> xs)
+free (AErased _) = S.empty -- TODO: is this dangerous?
+                           -- if so we need to define free on CTerm
+
+freeInContext :: [AStmt] -> (S.Set Ident, S.Set Ident)
+freeInContext = go S.empty S.empty where
+  go f b [] = (f, b)
+  go f b ((ADeclare _ x ty):rest) =
+    go (S.union f (free ty S.\\ b)) (S.insert x b) rest
+  go f b ((ADefine _ _ t):rest) =
+    go (S.union f (free t S.\\ b)) b rest
+  go f b ((ADeclareDefine _ x ty t):rest) = let b' = S.insert x b in
+    go (S.union (S.union f (free ty S.\\ b)) (free t S.\\ b')) b' rest
+
 -- YES I KNOW THEY'RE ORPHANS
 deriving instance Show (TermX 'Annotated)
 deriving instance Eq (TermX 'Annotated)
