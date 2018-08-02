@@ -4,6 +4,7 @@
 
 module Language.MinPS.Annotate (
     ATerm
+  , AStmt
   , Arity(..)
   , EnumRepr
   , LabelRepr(..)
@@ -18,6 +19,10 @@ module Language.MinPS.Annotate (
   , annotateContext
   , annotateProgram
   , nonNullLabel
+
+  , pattern ADeclare
+  , pattern ADefine
+  , pattern ADeclareDefine
 
   , pattern ALet
   , pattern AVar
@@ -37,6 +42,7 @@ module Language.MinPS.Annotate (
 import Control.Monad.State
 import Data.Void
 import Data.List (elemIndex, sort)
+import qualified Data.Set as S
 import qualified Data.Map.Strict as M
 
 import Language.MinPS.Syntax
@@ -47,6 +53,7 @@ import Language.MinPS.Value
 import Language.JS.Syntax
 
 type ATerm = TermX 'Annotated
+type AStmt = StmtX 'Annotated
 
 data Arity =
     AZ
@@ -90,6 +97,22 @@ data Rewrite =
   | SatApp Saturation ATerm [(Erasure, ATerm)] -- rewrite nested application
   | Erased ErasureKind -- an erased term
   deriving (Eq, Show)
+
+type instance XDeclare 'Annotated = ()
+type instance XDefine 'Annotated = ()
+type instance XDeclareDefine 'Annotated = ()
+type instance XStmt 'Annotated = Void
+
+pattern ADeclare :: Ident -> ATerm -> AStmt
+pattern ADeclare x ty = Declare () x ty
+
+pattern ADefine :: Ident -> ATerm -> AStmt
+pattern ADefine x t = Define () x t
+
+pattern ADeclareDefine :: Ident -> ATerm -> ATerm -> AStmt
+pattern ADeclareDefine x ty t = DeclareDefine () x ty t
+
+{-# COMPLETE ADeclare, ADefine, ADeclareDefine #-}
 
 type instance XLet 'Annotated = ()
 type instance XType 'Annotated = Void -- should be erased
@@ -223,19 +246,16 @@ annotate' s (KUnfold _ _ t x u) = AUnfold <$> annotate' s t
                                         <*> pure x
                                         <*> annotate' (x:s) u
 
-annotateStmt :: MonadState Env m
-             => [Ident]
-             -> Stmt 'KnownType
-             -> m ([Ident], Stmt 'Annotated)
-annotateStmt s (Declare x ty) = annotate' s ty >>= \ty' ->
-  pure (x:s, Declare x ty')
-annotateStmt s (Define x t) = annotate' s t >>= \t' ->
-  pure (s, Define x t')
-annotateStmt s (DeclareDefine x ty t) = do
+annotateStmt :: MonadState Env m => [Ident] -> KStmt -> m ([Ident], AStmt)
+annotateStmt s (KDeclare x ty) = annotate' s ty >>= \ty' ->
+  pure (x:s, ADeclare x ty')
+annotateStmt s (KDefine x t) = annotate' s t >>= \t' ->
+  pure (s, ADefine x t')
+annotateStmt s (KDeclareDefine x ty t) = do
   ty' <- annotate' s ty
   let s' = (x:s)
   t' <- annotate' s' t
-  pure (s', DeclareDefine x ty' t')
+  pure (s', ADeclareDefine x ty' t')
 
 annotateContext :: MonadState Env m
                 => [Ident]
@@ -257,6 +277,25 @@ nonNullLabel (BoolRepr, m) null = case M.toList (M.delete null m) of
   [(l, _)] -> Just l
   _ -> Nothing
 nonNullLabel _ _ = Nothing
+
+{-
+cycles :: Ident -> KTerm -> S.Set Ident
+cycles x (KLet _ _ ctxt t) = undefined -- this is the hard one
+cycles _ (KType _ _) = S.empty
+-- ah fuck, I can't believe you've done this
+cycles x (KVar _ _ v) = if x == v
+  then whatExactlyThinkAboutItYouNeedToThreadASet
+  else alsoYouStillDon'tKnowThereCouldBeDeeperCycles
+-}
+
+{- OK BOIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
+ - you need to Trees-That-Grow yr Stmts
+ - so that (Define _ _) :: Stmt 'Annotated
+ - and (DeclareDefine _ _) :: Stmt 'Annotated
+ - can have a S.Set Ident of circular deps
+ - you can do it by threading along a scope-like of S.Set's of
+ - "who's referenced in the definition of this identifier"
+ -}
 
 piArity :: MonadState Env m => Closure CTerm -> m Arity
 piArity (CPi x ty t :@ c) = do
@@ -362,5 +401,5 @@ evalInEnv t env = locally (put env >> eval' t)
 deriving instance Show (TermX 'Annotated)
 deriving instance Eq (TermX 'Annotated)
 
-deriving instance Show (Stmt 'Annotated)
-deriving instance Eq (Stmt 'Annotated)
+deriving instance Show (StmtX 'Annotated)
+deriving instance Eq (StmtX 'Annotated)

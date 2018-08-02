@@ -5,7 +5,9 @@
 
 module Language.MinPS.Syntax (
     TermState(..)
-  , Stmt(..)
+  , StmtX(..)
+  , UStmt
+  , CStmt
   , Context
   , Label(..)
   , Ident(..)
@@ -14,6 +16,11 @@ module Language.MinPS.Syntax (
   , CTerm
   , ReplCommand(..)
   , Forget(..)
+
+  , XDeclare
+  , XDefine
+  , XDeclareDefine
+  , XStmt
 
   , XLet
   , XType
@@ -34,6 +41,14 @@ module Language.MinPS.Syntax (
   , XForce
   , XUnfold
   , XTerm
+
+  , pattern UDeclare
+  , pattern UDefine
+  , pattern UDeclareDefine
+
+  , pattern CDeclare
+  , pattern CDefine
+  , pattern CDeclareDefine
 
   , pattern ULet
   , pattern UType
@@ -89,12 +104,13 @@ data TermState = Unchecked
 newtype Label = MkLabel { getLabel :: T.Text }
   deriving (Show, Eq, IsString, Ord)
 
-data Stmt :: TermState -> * where
-  Declare :: Ident -> TermX s -> Stmt s
-  Define :: Ident -> TermX s -> Stmt s
-  DeclareDefine :: Ident -> TermX s -> TermX s -> Stmt s
+data StmtX :: TermState -> * where
+  Declare :: !(XDeclare s) -> Ident -> TermX s -> StmtX s
+  Define :: !(XDefine s) -> Ident -> TermX s -> StmtX s
+  DeclareDefine :: !(XDeclareDefine s) -> Ident -> TermX s -> TermX s -> StmtX s
+  StmtX :: !(XStmt s) -> StmtX s
 
-type Context s = [Stmt s]
+type Context s = [StmtX s]
 
 data TermX :: TermState -> * where
   Let :: !(XLet s) -> Context s -> TermX s -> TermX s
@@ -119,9 +135,14 @@ data TermX :: TermState -> * where
 
 data ReplCommand =
     ReplEval (TermX 'Unchecked)
-  | ReplExec (Stmt 'Unchecked)
+  | ReplExec (StmtX 'Unchecked)
   | ReplCmd T.Text (Maybe T.Text)
   deriving (Show, Eq)
+
+type family XDeclare (s :: TermState)
+type family XDefine (s :: TermState)
+type family XDeclareDefine (s :: TermState)
+type family XStmt (s :: TermState)
 
 type family XLet (s :: TermState)
 type family XType (s :: TermState)
@@ -143,8 +164,43 @@ type family XForce (s :: TermState)
 type family XUnfold (s :: TermState)
 type family XTerm (s :: TermState)
 
+type UStmt = StmtX 'Unchecked
+type CStmt = StmtX 'Checked
+
 type UTerm = TermX 'Unchecked
 type CTerm = TermX 'Checked
+
+type instance XDeclare 'Unchecked = ()
+type instance XDefine 'Unchecked = ()
+type instance XDeclareDefine 'Unchecked = ()
+type instance XStmt 'Unchecked = Void
+
+pattern UDeclare :: Ident -> UTerm -> UStmt
+pattern UDeclare x ty = Declare () x ty
+
+pattern UDefine :: Ident -> UTerm -> UStmt
+pattern UDefine x t = Define () x t
+
+pattern UDeclareDefine :: Ident -> UTerm -> UTerm -> UStmt
+pattern UDeclareDefine x ty t = DeclareDefine () x ty t
+
+{-# COMPLETE UDeclare, UDefine, UDeclareDefine #-}
+
+type instance XDeclare 'Checked = ()
+type instance XDefine 'Checked = ()
+type instance XDeclareDefine 'Checked = ()
+type instance XStmt 'Checked = Void
+
+pattern CDeclare :: Ident -> CTerm -> CStmt
+pattern CDeclare x ty = Declare () x ty
+
+pattern CDefine :: Ident -> CTerm -> CStmt
+pattern CDefine x t = Define () x t
+
+pattern CDeclareDefine :: Ident -> CTerm -> CTerm -> CStmt
+pattern CDeclareDefine x ty t = DeclareDefine () x ty t
+
+{-# COMPLETE CDeclare, CDefine, CDeclareDefine #-}
 
 type instance XLet 'Unchecked = ()
 type instance XType 'Unchecked = ()
@@ -307,10 +363,10 @@ deriving instance Show (TermX 'Unchecked)
 deriving instance Eq (TermX 'Checked)
 deriving instance Eq (TermX 'Unchecked)
 
-deriving instance Show (Stmt 'Checked) 
-deriving instance Show (Stmt 'Unchecked) 
-deriving instance Eq (Stmt 'Checked)
-deriving instance Eq (Stmt 'Unchecked)
+deriving instance Show (StmtX 'Checked) 
+deriving instance Show (StmtX 'Unchecked) 
+deriving instance Eq (StmtX 'Checked)
+deriving instance Eq (StmtX 'Unchecked)
 
 class Forget (f :: TermState -> *) (s :: TermState) (t :: TermState) where
   forget :: f s -> f t
@@ -337,6 +393,10 @@ instance (
   , XCase t ~ ()
   , XForce t ~ ()
   , XUnfold t ~ ()
+  , XStmt s ~ Void
+  , XDeclare t ~ ()
+  , XDefine t ~ ()
+  , XDeclareDefine t ~ ()
   ) => Forget TermX s t where
   forget (Let _ ctxt t) = Let () (forget <$> ctxt) (forget t)
   forget (Type _) = Type ()
@@ -360,7 +420,14 @@ instance (
   forget (TermX v) = absurd v
 
 {- requires UndecidableInstances; I don't see the problem -}
-instance Forget TermX s t => Forget Stmt s t where
-  forget (Declare x ty) = Declare x (forget ty)
-  forget (Define x t) = Define x (forget t)
-  forget (DeclareDefine x ty t) = DeclareDefine x (forget ty) (forget t)
+instance (
+    Forget TermX s t
+  , XStmt s ~ Void
+  , XDeclare t ~ ()
+  , XDefine t ~ ()
+  , XDeclareDefine t ~ ()
+  ) => Forget StmtX s t where
+  forget (Declare _ x ty) = Declare () x (forget ty)
+  forget (Define _ x t) = Define () x (forget t)
+  forget (DeclareDefine _ x ty t) = DeclareDefine () x (forget ty) (forget t)
+  forget (StmtX v) = absurd v

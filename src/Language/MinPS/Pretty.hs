@@ -20,11 +20,12 @@ instance Pretty (Ident) where
 instance Pretty (Label) where
   pretty = getLabel
 
-instance Pretty (Stmt a) where
-  pretty (Declare x ty) = pretty x <> ": " <> pretty ty <> ";\n"
-  pretty (Define x t) = pretty x <> " = " <> pretty t <> ";\n"
-  pretty (DeclareDefine x ty t) = pretty x <> ": " <> pretty ty
+instance Pretty (StmtX a) where
+  pretty (Declare _ x ty) = pretty x <> ": " <> pretty ty <> ";\n"
+  pretty (Define _ x t) = pretty x <> " = " <> pretty t <> ";\n"
+  pretty (DeclareDefine _ x ty t) = pretty x <> ": " <> pretty ty
     <> " = " <> pretty t <> ";\n"
+  pretty (StmtX _) = "<extension stmt>"
 
 instance Pretty (TermX a) where
   pretty (Let _ ctxt t) = "let " <> foldMap pretty ctxt <> "in " <> pretty t

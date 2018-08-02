@@ -95,46 +95,46 @@ instance Compile TermX JSExpr where
         (JSCall (compile c f)
                 ((compile c . snd <$> filter keep args) ++ (JSVar <$> rest')))
 
-instance Compile Stmt ([JSExpr], [JSStmt]) where
+instance Compile StmtX ([JSExpr], [JSStmt]) where
   -- named function definitions will get hoisted, so we can skip the
   --   pre-declaration...
-  compile c (Declare x (AErased EKTypeType)) = ((jsVar x):c, [])
-  compile c (Declare x (AErased (EKPiType _))) = ((jsVar x):c, [])
-  compile c (Declare x _) = ((jsVar x):c, [JSLet (jsIdent x) Nothing])
+  compile c (ADeclare x (AErased EKTypeType)) = ((jsVar x):c, [])
+  compile c (ADeclare x (AErased (EKPiType _))) = ((jsVar x):c, [])
+  compile c (ADeclare x _) = ((jsVar x):c, [JSLet (jsIdent x) Nothing])
 
   -- and just emit the definition
-  compile c (Define _ (AErased _)) = (c, [])
-  compile c (Define x (APolyLam a (ALet ctxt t))) =
+  compile c (ADefine _ (AErased _)) = (c, [])
+  compile c (ADefine x (APolyLam a (ALet ctxt t))) =
     (c, go c [] a t) where
       go c args AZ t =
         [JSFunDef (jsIdent x) (reverse args) (letBody c ctxt t)]
       go c args (AS x EKeep a) t = go ((jsVar x):c) ((jsIdent x):args) a t
       go c args (AS x (EErase _) a) t = go ((jsVar x):c) args a t
-  compile c (Define x (APolyLam a t)) =
+  compile c (ADefine x (APolyLam a t)) =
     (c, go c [] a t) where
       go c args AZ t =
         [JSFunDef (jsIdent x) (reverse args) [JSReturn $ compile c t]]
       go c args (AS x EKeep a) t = go ((jsVar x):c) ((jsIdent x):args) a t
       go c args (AS x (EErase _) a) t = go ((jsVar x):c) args a t
-  compile c (Define x t) = (c, [JSExprStmt $ JSAssign (jsVar x) (compile c t)])
+  compile c (ADefine x t) = (c, [JSExprStmt $ JSAssign (jsVar x) (compile c t)])
 
-  compile c (DeclareDefine _ _ (AErased _)) = (c, [])
-  compile c (DeclareDefine x _ (APolyLam a (ALet ctxt t))) =
+  compile c (ADeclareDefine _ _ (AErased _)) = (c, [])
+  compile c (ADeclareDefine x _ (APolyLam a (ALet ctxt t))) =
     ((jsVar x):c, go ((jsVar x):c) [] a t) where
       go c args AZ t =
         [JSFunDef (jsIdent x) (reverse args) (letBody c ctxt t)]
       go c args (AS x EKeep a) t = go ((jsVar x):c) ((jsIdent x):args) a t
       go c args (AS x (EErase _) a) t = go ((jsVar x):c) args a t
-  compile c (DeclareDefine x _ (APolyLam a t)) =
+  compile c (ADeclareDefine x _ (APolyLam a t)) =
     ((jsVar x):c, go ((jsVar x):c) [] a t) where
       go c args AZ t =
         [JSFunDef (jsIdent x) (reverse args) [JSReturn $ compile c t]]
       go c args (AS x EKeep a) t = go ((jsVar x):c) ((jsIdent x):args) a t
       go c args (AS x (EErase _) a) t = go ((jsVar x):c) args a t
-  compile c (DeclareDefine x _ t) =
+  compile c (ADeclareDefine x _ t) =
     ((jsVar x):c, [JSLet (jsIdent x) (Just $ compile ((jsVar x):c) t)])
 
-compileProgram :: [Stmt 'Annotated] -> [JSStmt]
+compileProgram :: [AStmt] -> [JSStmt]
 compileProgram = concat . go [] [] where 
   go c p (s:rest) = let (c', s') = compile c s in go c' (s':p) rest
   go _ p [] = reverse p
@@ -168,7 +168,7 @@ keep :: (Erasure, a) -> Bool
 keep (EKeep, _) = True
 keep (EErase _, _) = False
 
-letBody :: [JSExpr] -> [Stmt 'Annotated] -> ATerm -> [JSStmt]
+letBody :: [JSExpr] -> [AStmt] -> ATerm -> [JSStmt]
 letBody c ctxt t = concat (body c ctxt t) where
   body c (s:rest) t = let (c', s') = compile c s in s':(body c' rest t)
   body c [] t = [[JSReturn (compile c t)]]

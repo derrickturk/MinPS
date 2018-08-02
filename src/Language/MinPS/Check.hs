@@ -5,6 +5,7 @@
 
 module Language.MinPS.Check (
     TypeError(..)
+  , KStmt
   , KTerm
   , check
   , check'
@@ -17,6 +18,10 @@ module Language.MinPS.Check (
   , runInfer
   , typeOf
   , typeOfE
+
+  , pattern KDeclare
+  , pattern KDefine
+  , pattern KDeclareDefine
 
   , pattern KLet
   , pattern KType
@@ -68,6 +73,7 @@ data TypeError =
   | NotInferable (Closure (UTerm))
   deriving Show
 
+type KStmt = StmtX 'KnownType
 type KTerm = TermX 'KnownType
 
 check :: (MonadState Env m, MonadError TypeError m)
@@ -283,17 +289,17 @@ runInfer :: Env
 runInfer e t = evalState (runExceptT $ infer t) e
 
 checkStmt :: (MonadState Env m, MonadError TypeError m)
-          => Closure (Stmt 'Unchecked)
+          => Closure UStmt
           -> Set.Set Ident
           -> Set.Set Ident
-          -> m (Closure (Stmt 'KnownType), Set.Set Ident, Set.Set Ident)
-checkStmt (Declare x ty :@ c) decls defns = if Set.member x decls
+          -> m (Closure KStmt, Set.Set Ident, Set.Set Ident)
+checkStmt (UDeclare x ty :@ c) decls defns = if Set.member x decls
   then throwError $ DuplicateDeclare x
   else do
     ty' <- check' (ty :@ c) (emptyC CType)
     i <- declareE x (Just (forget ty' :@ c))
-    pure (Declare x ty' :@ (x, i):c, Set.insert x decls, defns)
-checkStmt (Define x t :@ c) decls defns = if Set.member x defns
+    pure (KDeclare x ty' :@ (x, i):c, Set.insert x decls, defns)
+checkStmt (UDefine x t :@ c) decls defns = if Set.member x defns
   then throwError $ DuplicateDefine x
   else if not (Set.member x decls)
     then throwError $ Undeclared x
@@ -301,13 +307,13 @@ checkStmt (Define x t :@ c) decls defns = if Set.member x defns
       Just (EnvEntry _ (Just ty) _, i) <- gets (lookupSE x c)
       t' <- check' (t :@ c) ty
       defineE i (forget t' :@ c)
-      pure (Define x t' :@ c, decls, Set.insert x defns)
-checkStmt (DeclareDefine x ty t :@ c) decls defns = do
-  (Declare _ ty' :@ c', decls', defns') <-
-    checkStmt (Declare x ty :@ c) decls defns
-  (Define _ t' :@ c'', decls'', defns'') <-
-    checkStmt (Define x t :@ c') decls' defns'
-  pure (DeclareDefine x ty' t' :@ c'', decls'', defns'')
+      pure (KDefine x t' :@ c, decls, Set.insert x defns)
+checkStmt (UDeclareDefine x ty t :@ c) decls defns = do
+  (KDeclare _ ty' :@ c', decls', defns') <-
+    checkStmt (UDeclare x ty :@ c) decls defns
+  (KDefine _ t' :@ c'', decls'', defns'') <-
+    checkStmt (UDefine x t :@ c') decls' defns'
+  pure (KDeclareDefine x ty' t' :@ c'', decls'', defns'')
 
 checkContext :: (MonadState Env m, MonadError TypeError m)
              => Closure (Context 'Unchecked)
@@ -375,6 +381,22 @@ typeOfE (KCase ty env _ _) = (ty, env)
 typeOfE (KForce ty env _) = (ty, env)
 typeOfE (KUnfold ty env _ _ _) = (ty, env)
 typeOfE (TermX v) = absurd v
+
+type instance XDeclare 'KnownType = ()
+type instance XDefine 'KnownType = ()
+type instance XDeclareDefine 'KnownType = ()
+type instance XStmt 'KnownType = Void
+
+pattern KDeclare :: Ident -> KTerm -> KStmt
+pattern KDeclare x ty = Declare () x ty
+
+pattern KDefine :: Ident -> KTerm -> KStmt
+pattern KDefine x t = Define () x t
+
+pattern KDeclareDefine :: Ident -> KTerm -> KTerm -> KStmt
+pattern KDeclareDefine x ty t = DeclareDefine () x ty t
+
+{-# COMPLETE KDeclare, KDefine, KDeclareDefine #-}
 
 type instance XLet 'KnownType = (Closure CTerm, Env)
 type instance XType 'KnownType = (Closure CTerm, Env)
@@ -527,5 +549,4 @@ kUnfold kTy t x u =
    KFold, KApp, KSplit, KCase, KForce, KUnfold #-}
 
 deriving instance Show (TermX 'KnownType)
-
-deriving instance Show (Stmt 'KnownType) 
+deriving instance Show (StmtX 'KnownType) 

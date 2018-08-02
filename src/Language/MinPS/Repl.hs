@@ -106,7 +106,7 @@ updateEnv e = modify (\r -> r { replEnv = e })
 updateSettings :: ReplSettings -> Repl ()
 updateSettings s = modify (\r -> r { replSettings = s })
 
-replTypecheckStmt :: Stmt 'Unchecked -> Repl (Stmt 'KnownType)
+replTypecheckStmt :: UStmt -> Repl (KStmt)
 replTypecheckStmt stmt = Repl $ do
   ReplState c env decls defns settings <- get
   case runState (runExceptT $ checkStmt (stmt :@ c) decls defns) env of
@@ -125,7 +125,7 @@ replTypecheckTerm term = Repl $ do
       pure term'
     (Left e, _) -> throwError e
 
-replExecStmt :: Stmt 'Checked -> Repl ()
+replExecStmt :: CStmt -> Repl ()
 replExecStmt stmt = do
   env <- gets replEnv
   c <- gets replScope

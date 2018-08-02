@@ -97,17 +97,17 @@ eval' (CUnfold t x u :@ c) = eval' (t :@ c) >>= \case
 errorV :: Value -> String -> a
 errorV v s = error $ s ++ ": " ++ show v
 
-evalStmt :: MonadState Env m => Stmt 'Checked -> Scope -> m Scope
-evalStmt (Declare x ty) c = do
+evalStmt :: MonadState Env m => CStmt -> Scope -> m Scope
+evalStmt (CDeclare x ty) c = do
   i <- declareE x $ Just (ty :@ c)
   pure ((x, i):c)
-evalStmt (Define x t) c = case lookup x c of
+evalStmt (CDefine x t) c = case lookup x c of
   Just i -> do
     defineE i (t :@ c)
     pure c
   _ -> error "ICE: define-without-declare passed check"
-evalStmt (DeclareDefine x ty t) c =
-  evalStmt (Declare x ty) c >>= evalStmt (Define x t)
+evalStmt (CDeclareDefine x ty t) c =
+  evalStmt (CDeclare x ty) c >>= evalStmt (CDefine x t)
 
 evalContext :: MonadState Env m => Context 'Checked -> Scope -> m Scope
 evalContext [] c = pure c

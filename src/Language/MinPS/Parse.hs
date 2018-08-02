@@ -76,10 +76,10 @@ labelTerm = char '\'' *> label
 binder :: Parser (Ident, UTerm)
 binder = enclosed "(" ")" $ (,) <$> ident <*> (lexeme ":" *> term)
 
-stmt :: Parser (Stmt 'Unchecked)
-stmt =  try (Declare <$> ident <*> (lexeme ":" *> term <* lexeme ";"))
-    <|> try (Define <$> ident <*> (lexeme "=" *> term <* lexeme ";"))
-    <|> (DeclareDefine <$> ident
+stmt :: Parser UStmt
+stmt =  try (UDeclare <$> ident <*> (lexeme ":" *> term <* lexeme ";"))
+    <|> try (UDefine <$> ident <*> (lexeme "=" *> term <* lexeme ";"))
+    <|> (UDeclareDefine <$> ident
                        <*> (lexeme ":" *> term)
                        <*> (lexeme "=" *> term <* lexeme ";"))
     <?> "a declaration or definition"
