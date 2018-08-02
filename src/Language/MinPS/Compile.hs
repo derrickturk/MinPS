@@ -98,41 +98,55 @@ instance Compile TermX JSExpr where
 instance Compile StmtX ([JSExpr], [JSStmt]) where
   -- named function definitions will get hoisted, so we can skip the
   --   pre-declaration...
-  compile c (ADeclare x (AErased EKTypeType)) = ((jsVar x):c, [])
-  compile c (ADeclare x (AErased (EKPiType _))) = ((jsVar x):c, [])
-  compile c (ADeclare x _) = ((jsVar x):c, [JSLet (jsIdent x) Nothing])
+  compile c (ADeclare _ x (AErased EKTypeType)) = ((jsVar x):c, [])
+  compile c (ADeclare _ x (AErased (EKPiType _))) = ((jsVar x):c, [])
+  compile c (ADeclare FunctionalOrNone x _) =
+    ((jsVar x):c, [JSLet (jsIdent x) Nothing])
+  compile c (ADeclare Direct x _) =
+    ((jsVar x):c, [JSLet (jsIdent x) (Just omega)])
+  compile c (ADeclare Boxed x _) =
+    ((jsVar x):c, [JSLet (jsIdent x) (Just $ JSArr [])])
 
   -- and just emit the definition
-  compile c (ADefine _ (AErased _)) = (c, [])
-  compile c (ADefine x (APolyLam a (ALet ctxt t))) =
+  compile c (ADefine _ _ (AErased _)) = (c, [])
+  compile c (ADefine _ x (APolyLam a (ALet ctxt t))) =
     (c, go c [] a t) where
       go c args AZ t =
         [JSFunDef (jsIdent x) (reverse args) (letBody c ctxt t)]
       go c args (AS x EKeep a) t = go ((jsVar x):c) ((jsIdent x):args) a t
       go c args (AS x (EErase _) a) t = go ((jsVar x):c) args a t
-  compile c (ADefine x (APolyLam a t)) =
+  compile c (ADefine _ x (APolyLam a t)) =
     (c, go c [] a t) where
       go c args AZ t =
         [JSFunDef (jsIdent x) (reverse args) [JSReturn $ compile c t]]
       go c args (AS x EKeep a) t = go ((jsVar x):c) ((jsIdent x):args) a t
       go c args (AS x (EErase _) a) t = go ((jsVar x):c) args a t
-  compile c (ADefine x t) = (c, [JSExprStmt $ JSAssign (jsVar x) (compile c t)])
+  compile c (ADefine FunctionalOrNone x t) =
+    (c, [JSExprStmt $ JSAssign (jsVar x) (compile c t)])
+  compile c (ADefine Direct _ _) = (c, [])
+  compile c (ADefine Boxed x t) = (c, [assignBoxedRec (jsVar x) (compile c t)])
 
-  compile c (ADeclareDefine _ _ (AErased _)) = (c, [])
-  compile c (ADeclareDefine x _ (APolyLam a (ALet ctxt t))) =
+  compile c (ADeclareDefine _ _ _ (AErased _)) = (c, [])
+  compile c (ADeclareDefine _ x _ (APolyLam a (ALet ctxt t))) =
     ((jsVar x):c, go ((jsVar x):c) [] a t) where
       go c args AZ t =
         [JSFunDef (jsIdent x) (reverse args) (letBody c ctxt t)]
       go c args (AS x EKeep a) t = go ((jsVar x):c) ((jsIdent x):args) a t
       go c args (AS x (EErase _) a) t = go ((jsVar x):c) args a t
-  compile c (ADeclareDefine x _ (APolyLam a t)) =
+  compile c (ADeclareDefine _ x _ (APolyLam a t)) =
     ((jsVar x):c, go ((jsVar x):c) [] a t) where
       go c args AZ t =
         [JSFunDef (jsIdent x) (reverse args) [JSReturn $ compile c t]]
       go c args (AS x EKeep a) t = go ((jsVar x):c) ((jsIdent x):args) a t
       go c args (AS x (EErase _) a) t = go ((jsVar x):c) args a t
-  compile c (ADeclareDefine x _ t) =
+  compile c (ADeclareDefine FunctionalOrNone x _ t) =
     ((jsVar x):c, [JSLet (jsIdent x) (Just $ compile ((jsVar x):c) t)])
+  compile c (ADeclareDefine Direct x _ _) =
+    ((jsVar x):c, [JSLet (jsIdent x) (Just omega)])
+  compile c (ADeclareDefine Boxed x _ t) =
+    ((jsVar x):c, [ JSLet (jsIdent x) (Just $ JSArr [])
+                  , assignBoxedRec (jsVar x) (compile ((jsVar x):c) t)
+                  ])
 
 compileProgram :: [AStmt] -> [JSStmt]
 compileProgram = concat . go [] [] where 
@@ -182,3 +196,12 @@ curriedNames = go S.empty 1 where
     | otherwise = (MkJSIdent $ getIdent n):(go (S.insert n seen) i ns)
   go _ _ [] = []
   newvar = MkJSIdent . T.cons '$' . T.pack . show
+
+omega :: JSExpr
+omega = JSFun [] [JSWhile (JSBool True) [JSEmptyStmt]]
+
+assignBoxedRec :: JSExpr -> JSExpr -> JSStmt
+assignBoxedRec dst src = JSExprStmt $
+  JSCall (JSMember src "forEach")
+         [JSFun ["$v", "$i"]
+                [JSExprStmt $ JSAssign (JSIndex dst (JSVar "$i")) (JSVar "$v")]]

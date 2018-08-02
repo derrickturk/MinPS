@@ -13,6 +13,7 @@ module Language.MinPS.Annotate (
   , Saturation(..)
   , Erasure(..)
   , ErasureKind(..)
+  , SelfRef(..)
   , annotate
   , annotate'
   , annotateStmt
@@ -98,19 +99,25 @@ data Rewrite =
   | Erased ErasureKind -- an erased term
   deriving (Eq, Show)
 
-type instance XDeclare 'Annotated = ()
-type instance XDefine 'Annotated = ()
-type instance XDeclareDefine 'Annotated = ()
+data SelfRef =
+    FunctionalOrNone -- no special handling needed
+  | Direct -- compile to infinite loop
+  | Boxed -- compile to circular structure
+  deriving (Eq, Show)
+
+type instance XDeclare 'Annotated = SelfRef
+type instance XDefine 'Annotated = SelfRef
+type instance XDeclareDefine 'Annotated = SelfRef
 type instance XStmt 'Annotated = Void
 
-pattern ADeclare :: Ident -> ATerm -> AStmt
-pattern ADeclare x ty = Declare () x ty
+pattern ADeclare :: SelfRef -> Ident -> ATerm -> AStmt
+pattern ADeclare r x ty = Declare r x ty
 
-pattern ADefine :: Ident -> ATerm -> AStmt
-pattern ADefine x t = Define () x t
+pattern ADefine :: SelfRef -> Ident -> ATerm -> AStmt
+pattern ADefine r x t = Define r x t
 
-pattern ADeclareDefine :: Ident -> ATerm -> ATerm -> AStmt
-pattern ADeclareDefine x ty t = DeclareDefine () x ty t
+pattern ADeclareDefine :: SelfRef -> Ident -> ATerm -> ATerm -> AStmt
+pattern ADeclareDefine r x ty t = DeclareDefine r x ty t
 
 {-# COMPLETE ADeclare, ADefine, ADeclareDefine #-}
 
@@ -247,15 +254,16 @@ annotate' s (KUnfold _ _ t x u) = AUnfold <$> annotate' s t
                                         <*> annotate' (x:s) u
 
 annotateStmt :: MonadState Env m => [Ident] -> KStmt -> m ([Ident], AStmt)
-annotateStmt s (KDeclare x ty) = annotate' s ty >>= \ty' ->
-  pure (x:s, ADeclare x ty')
+annotateStmt s (KDeclare x ty) = do
+  ty' <- annotate' s ty
+  pure (x:s, ADeclare FunctionalOrNone x ty')
 annotateStmt s (KDefine x t) = annotate' s t >>= \t' ->
-  pure (s, ADefine x t')
+  pure (s, ADefine FunctionalOrNone x t')
 annotateStmt s (KDeclareDefine x ty t) = do
   ty' <- annotate' s ty
   let s' = (x:s)
   t' <- annotate' s' t
-  pure (s', ADeclareDefine x ty' t')
+  pure (s', ADeclareDefine FunctionalOrNone x ty' t')
 
 annotateContext :: MonadState Env m
                 => [Ident]
@@ -309,12 +317,6 @@ piShouldErase :: CTerm -> Erasure
 piShouldErase CType = EErase EKTypeType
 piShouldErase (CPi _ _ t) = piShouldErase t
 piShouldErase _ = EKeep
-
-{-
-sigmaArity :: CTerm -> Arity
-sigmaArity (CSigma x _ r) = AS x (sigmaArity r)
-sigmaArity _ = AZ
--}
 
 typeShouldErase :: CTerm -> Erasure
 typeShouldErase CType = EErase EKTypeType
