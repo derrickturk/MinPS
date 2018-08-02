@@ -198,7 +198,7 @@ curriedNames = go S.empty 1 where
   newvar = MkJSIdent . T.cons '$' . T.pack . show
 
 omega :: JSExpr
-omega = JSFun [] [JSWhile (JSBool True) [JSEmptyStmt]]
+omega = JSCall (JSFun [] [JSWhile (JSBool True) [JSEmptyStmt]]) []
 
 assignBoxedRec :: JSExpr -> JSExpr -> JSStmt
 assignBoxedRec dst src = JSExprStmt $
