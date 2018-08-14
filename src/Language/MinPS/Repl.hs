@@ -40,7 +40,8 @@ import Control.Monad.Except
 
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
-import qualified Data.Set as Set
+import qualified Data.Set as S
+import qualified Data.Map.Strict as M
 
 import System.IO (hFlush, stdout)
 import System.IO.Error (isEOFError, catchIOError, ioError)
@@ -61,9 +62,10 @@ import qualified Language.MinPS.Parse as P
 
 data ReplState = ReplState { replScope :: Scope
                            , replEnv :: Env
-                           , replDecls :: Set.Set Ident
-                           , replDefns :: Set.Set Ident
+                           , replDecls :: S.Set Ident
+                           , replDefns :: S.Set Ident
                            , replSettings :: ReplSettings
+                           , replFreeVars :: M.Map Ident FreeVariableMap
                            } deriving Show
 
 data ReplSettings = ReplSettings { showTypes :: Bool
@@ -83,7 +85,7 @@ initialSettings :: ReplSettings
 initialSettings = ReplSettings False
 
 initialState :: ReplState
-initialState = ReplState emptyS emptyE Set.empty Set.empty initialSettings
+initialState = ReplState emptyS emptyE S.empty S.empty initialSettings M.empty
 
 runRepl :: Repl a -> ReplState -> IO (Either TypeError a, ReplState)
 runRepl (Repl r) s = runStateT (runExceptT r) s
@@ -106,12 +108,16 @@ updateEnv e = modify (\r -> r { replEnv = e })
 updateSettings :: ReplSettings -> Repl ()
 updateSettings s = modify (\r -> r { replSettings = s })
 
+addFreeVars :: Ident -> FreeVariableMap -> Repl ()
+addFreeVars x frees = modify
+  (\r -> r { replFreeVars = M.insert x frees (replFreeVars r) })
+
 replTypecheckStmt :: UStmt -> Repl (KStmt)
 replTypecheckStmt stmt = Repl $ do
-  ReplState c env decls defns settings <- get
+  ReplState c env decls defns settings frees <- get
   case runState (runExceptT $ checkStmt (stmt :@ c) decls defns) env of
     (Right (stmt' :@ c', decls', defns'), env') -> do
-      put $ ReplState c' env' decls' defns' settings
+      put $ ReplState c' env' decls' defns' settings frees
       pure stmt'
     (Left e, _) -> throwError e
 
@@ -125,13 +131,21 @@ replTypecheckTerm term = Repl $ do
       pure term'
     (Left e, _) -> throwError e
 
-replExecStmt :: CStmt -> Repl ()
+replExecStmt :: KStmt -> Repl ()
 replExecStmt stmt = do
   env <- gets replEnv
   c <- gets replScope
-  let (c', env') = runState (evalStmt stmt c) env
+  let (c', env') = runState (evalStmt (forget stmt) c) env
   updateScope c'
   updateEnv env'
+  case stmt of
+    KDeclare _ _ -> pure ()
+    KDefine x t -> do
+      let f = evalState (free t) env'
+      addFreeVars x f
+    KDeclareDefine x _ t -> do
+      let f = evalState (free t) env'
+      addFreeVars x f
 
 replEvalClosure :: Closure CTerm -> Repl Value
 replEvalClosure termC = do
@@ -173,7 +187,8 @@ replAnnotate (Just line) = case P.parse (P.only P.stmt) "stdin" line of
     s' <- replTypecheckStmt s
     names <- gets (fmap fst . replScope)
     env <- gets replEnv
-    let (_, s'') = evalState (annotateStmt names s') env
+    frees <- gets replFreeVars
+    let (_, _, s'') = evalState (annotateStmt frees names s') env
     replPrint s''
 
 replCompile :: Maybe T.Text -> Repl ()
@@ -191,7 +206,8 @@ replCompile (Just line) = case P.parse (P.only P.stmt) "stdin" line of
     s' <- replTypecheckStmt s
     names <- gets (fmap fst . replScope)
     env <- gets replEnv
-    let (_, s'') = evalState (annotateStmt names s') env
+    frees <- gets replFreeVars
+    let (_, _, s'') = evalState (annotateStmt frees names s') env
     let (_, js) = compile (jsVar <$> names) s''
     mapM_ (replPutTextLn . emit) js
 
@@ -260,7 +276,7 @@ replLine = do
     Right (ReplExec stmt) -> do
       do
         stmt' <- replTypecheckStmt stmt
-        replExecStmt $ forget stmt'
+        replExecStmt stmt'
       `catchError` replHandleTypeError
     Right (ReplCmd c arg) -> case lookup c replCmds of
       Just cmd -> cmd arg `catchError` replHandleTypeError
@@ -283,7 +299,7 @@ replLoad (Just file) = do
         Left err -> replPutStrLn $ P.parseErrorPretty err
         Right ctxt -> do
           ctxt' <- mapM replTypecheckStmt ctxt
-          mapM_ (replExecStmt . forget) ctxt'
+          mapM_ replExecStmt ctxt'
         `catchError` replHandleTypeError
     Nothing -> replPutStrLn "Unable to load file."
   where

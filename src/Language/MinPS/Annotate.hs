@@ -13,13 +13,17 @@ module Language.MinPS.Annotate (
   , Saturation(..)
   , Erasure(..)
   , ErasureKind(..)
-  , SelfRef(..)
+  , FreeKind(..)
+  , FreeVariableMap
+  , BoundVariableSet
+  , ValueRec(..)
   , annotate
   , annotate'
   , annotateStmt
   , annotateContext
   , annotateProgram
   , nonNullLabel
+  , free
 
   , pattern ADeclare
   , pattern ADefine
@@ -99,24 +103,32 @@ data Rewrite =
   | Erased ErasureKind -- an erased term
   deriving (Eq, Show)
 
-data SelfRef =
-    FunctionalOrNone -- no special handling needed
-  | Direct -- compile to infinite loop
-  | Boxed -- compile to circular structure
+data FreeKind =
+    FreeBoxed
+  | FreeUnboxed
   deriving (Eq, Show)
 
-type instance XDeclare 'Annotated = SelfRef
-type instance XDefine 'Annotated = SelfRef
-type instance XDeclareDefine 'Annotated = SelfRef
+type FreeVariableMap = M.Map Ident FreeKind
+type BoundVariableSet = S.Set Ident
+
+data ValueRec =
+    FunctionalOrNone -- no special handling needed
+  | DirectRec -- compile to infinite loop
+  | BoxedRec -- compile to circular structure
+  deriving (Eq, Show)
+
+type instance XDeclare 'Annotated = ValueRec
+type instance XDefine 'Annotated = ValueRec
+type instance XDeclareDefine 'Annotated = ValueRec
 type instance XStmt 'Annotated = Void
 
-pattern ADeclare :: SelfRef -> Ident -> ATerm -> AStmt
+pattern ADeclare :: ValueRec -> Ident -> ATerm -> AStmt
 pattern ADeclare r x ty = Declare r x ty
 
-pattern ADefine :: SelfRef -> Ident -> ATerm -> AStmt
+pattern ADefine :: ValueRec -> Ident -> ATerm -> AStmt
 pattern ADefine r x t = Define r x t
 
-pattern ADeclareDefine :: SelfRef -> Ident -> ATerm -> ATerm -> AStmt
+pattern ADeclareDefine :: ValueRec -> Ident -> ATerm -> ATerm -> AStmt
 pattern ADeclareDefine r x ty t = DeclareDefine r x ty t
 
 {-# COMPLETE ADeclare, ADefine, ADeclareDefine #-}
@@ -253,27 +265,51 @@ annotate' s (KUnfold _ _ t x u) = AUnfold <$> annotate' s t
                                         <*> pure x
                                         <*> annotate' (x:s) u
 
-annotateStmt :: MonadState Env m => [Ident] -> KStmt -> m ([Ident], AStmt)
-annotateStmt s (KDeclare x ty) = do
+annotateStmt :: MonadState Env m
+             => M.Map Ident FreeVariableMap
+             -> [Ident]
+             -> KStmt
+             -> m (M.Map Ident FreeVariableMap, [Ident], AStmt)
+annotateStmt frees s (KDeclare x ty) = do
   ty' <- annotate' s ty
-  pure (x:s, ADeclare FunctionalOrNone x ty')
-annotateStmt s (KDefine x t) = annotate' s t >>= \t' ->
-  pure (s, ADefine FunctionalOrNone x t')
-annotateStmt s (KDeclareDefine x ty t) = do
+  -- these get fixed up in a second pass
+  -- which is ugly
+  pure (frees, x:s, ADeclare FunctionalOrNone x ty')
+annotateStmt frees s (KDefine x t) = do
+  t' <- annotate' s t
+  f <- free t
+  pure ( M.insert x f frees
+       , s
+       , ADefine FunctionalOrNone x t'
+       )
+annotateStmt frees s (KDeclareDefine x ty t) = do
   ty' <- annotate' s ty
   let s' = (x:s)
   t' <- annotate' s' t
-  pure (s', ADeclareDefine FunctionalOrNone x ty' t')
+  f <- free t
+  pure ( M.insert x f frees
+       , s'
+       , ADeclareDefine FunctionalOrNone x ty' t'
+       )
 
 annotateContext :: MonadState Env m
                 => [Ident]
                 -> Context 'KnownType
                 -> m ([Ident], Context 'Annotated)
+annotateContext s ctxt = go [] M.empty s ctxt where
+  go res _ s [] = pure (s, fixup $ reverse res)
+  go res frees s (stmt:rest) = do
+    (frees', s', stmt') <- annotateStmt frees s stmt
+    go (stmt':res) frees' s' rest
+  fixup = id
+
+{-
 annotateContext s [] = pure (s, [])
 annotateContext s (stmt:rest) = do
   (s', stmt') <- annotateStmt s stmt
   (s'', rest') <- annotateContext s' rest
   pure (s'', stmt':rest')
+-}
 
 annotateProgram :: MonadState Env m
                 => Context 'KnownType ->
@@ -285,25 +321,6 @@ nonNullLabel (BoolRepr, m) null = case M.toList (M.delete null m) of
   [(l, _)] -> Just l
   _ -> Nothing
 nonNullLabel _ _ = Nothing
-
-{-
-cycles :: Ident -> KTerm -> S.Set Ident
-cycles x (KLet _ _ ctxt t) = undefined -- this is the hard one
-cycles _ (KType _ _) = S.empty
--- ah fuck, I can't believe you've done this
-cycles x (KVar _ _ v) = if x == v
-  then whatExactlyThinkAboutItYouNeedToThreadASet
-  else alsoYouStillDon'tKnowThereCouldBeDeeperCycles
--}
-
-{- OK BOIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
- - you need to Trees-That-Grow yr Stmts
- - so that (Define _ _) :: Stmt 'Annotated
- - and (DeclareDefine _ _) :: Stmt 'Annotated
- - can have a S.Set Ident of circular deps
- - you can do it by threading along a scope-like of S.Set's of
- - "who's referenced in the definition of this identifier"
- -}
 
 piArity :: MonadState Env m => Closure CTerm -> m Arity
 piArity (CPi x ty t :@ c) = do
@@ -399,35 +416,102 @@ foldApp s t u = do
 evalInEnv :: MonadState Env m => Closure CTerm -> Env -> m Value 
 evalInEnv t env = locally (put env >> eval' t)
 
-free :: ATerm -> S.Set Ident
-free (ALet ctxt t) = let (f, b) = freeInContext ctxt in
-  S.union f (free t S.\\ b)
-free (AVar _ x) = S.singleton x
-free (APair _ x y) = S.union (free x) (free y)
-free (AEnumLabel _ _) = S.empty
-free (ABox t) = free t
-free (AFold t) = free t
-free (ASplit _ t x y u) =
-  S.union (free t) (free u S.\\ S.fromList [x, y])
-free (ACase _ t cases) = S.union (free t) (S.unions $ free . snd <$> cases)
-free (AForce t) = free t
-free (AUnfold t x u) = S.union (free t) (free u S.\\ S.singleton x)
-free (APolyLam a t) = free t S.\\ bound a where
-  bound AZ = S.empty
-  bound (AS x _ a) = S.insert x (bound a)
-free (ASatApp _ f xs) = S.union (free f) (S.unions $ free . snd <$> xs)
-free (AErased _) = S.empty -- TODO: is this dangerous?
-                           -- if so we need to define free on CTerm
+freePromote :: FreeKind -> FreeKind -> FreeKind
+freePromote _ FreeUnboxed = FreeUnboxed
+freePromote FreeUnboxed _ = FreeUnboxed
+freePromote FreeBoxed FreeBoxed = FreeBoxed
 
-freeInContext :: [AStmt] -> (S.Set Ident, S.Set Ident)
-freeInContext = go S.empty S.empty where
-  go f b [] = (f, b)
-  go f b ((ADeclare _ x ty):rest) =
-    go (S.union f (free ty S.\\ b)) (S.insert x b) rest
-  go f b ((ADefine _ _ t):rest) =
-    go (S.union f (free t S.\\ b)) b rest
-  go f b ((ADeclareDefine _ x ty t):rest) = let b' = S.insert x b in
-    go (S.union (S.union f (free ty S.\\ b)) (free t S.\\ b')) b' rest
+freeUnion :: FreeVariableMap -> FreeVariableMap -> FreeVariableMap
+freeUnion = M.unionWith freePromote
+
+freeUnions :: [FreeVariableMap] -> FreeVariableMap
+freeUnions = M.unionsWith freePromote
+
+freeBoxAll :: FreeVariableMap -> FreeVariableMap
+freeBoxAll = M.map (const FreeBoxed)
+
+-- ah fuck
+-- I can't believe I've done this
+-- couple problems:
+--   (minor): need to update REPL to thread around free maps
+--   (major): free needs type info to know whether boxed or unboxed
+--     in the App case (e.g. is this [sub]term of sigma type?)
+--     this suggests
+--     free :: MonadState Env m => KTerm -> m (M.Map Ident FreeKind)
+--   (major): we need to re-plumb a bunch of stuff to make that work
+--     (or maybe it only changes the shape of annotateStmt/annotateContext)
+
+free :: MonadState Env m => KTerm -> m (M.Map Ident FreeKind)
+free (KLet _ _ ctxt t) = do
+  (f, b) <- varsInContext ctxt
+  freeT <- free t
+  pure $ freeUnion f (freeT `M.withoutKeys` b)
+free (KVar _ _ x) = pure $ M.singleton x FreeUnboxed
+free (KLam _ _ x t) = M.delete x <$> free t
+free (KPair _ _ x y) = freeBoxAll <$> (freeUnion <$> free x <*> free y)
+free (KEnumLabel _ _ _) = pure M.empty
+free (KBox _ _ t) = free t
+free (KFold _ _ t) = free t
+-- TODO: this is where the fun begins
+free (KApp _ _ f x) = freeUnion <$> free f <*> free x
+free (KSplit _ _ t x y u) = freeUnion
+  <$> free t
+  <*> (M.withoutKeys <$> free u <*> pure (S.fromList [x, y]))
+free (KCase _ _ t cases) = freeUnion
+  <$> free t
+  <*> (freeUnions <$> mapM free (snd <$> cases))
+free (KForce _ _ t) = free t
+free (KUnfold _ _ t x u) = freeUnion <$> free t <*> (M.delete x <$> free u)
+
+-- these are a bit silly, as they just get erased immediately
+free (KType _ _) = pure M.empty
+free (KPi _ _ x ty t) = freeUnion <$> free ty <*> (M.delete x <$> free t)
+free (KSigma _ _ x ty t) = freeUnion <$> free ty <*> (M.delete x <$> free t)
+free (KEnum _ _ _) = pure M.empty
+free (KLift _ _ t) = free t
+free (KRec _ _ t) = free t
+
+varsInContext :: MonadState Env m
+              => [KStmt]
+              -> m (FreeVariableMap, BoundVariableSet)
+varsInContext = go M.empty S.empty where
+  go f b [] = pure (f, b)
+  go f b ((KDeclare x ty):rest) = do
+    freeTy <- free ty
+    go (freeUnion f (freeTy `M.withoutKeys` b)) (S.insert x b) rest
+  go f b ((KDefine _ t):rest) = do
+    freeT <- free t
+    go (freeUnion f (freeT `M.withoutKeys` b)) b rest
+  go f b ((KDeclareDefine x ty t):rest) = do
+    freeTy <- free ty
+    freeT <- free t
+    let b' = S.insert x b
+    go (freeUnion (freeUnion f (freeTy `M.withoutKeys` b))
+                  (freeT `M.withoutKeys` b'))
+       b'
+       rest
+
+-- this is totally bogus, but we need something like it... ?
+{-
+-- this lies a bit; it's correct for Boxed types
+--   for unboxed types, it'll return Boxed but really means...
+--   no, that's not right at all.
+--   it can't know.
+--   "direct" self reference can only be determined for boxed types
+--   by finding a structural chain of Vars (x = y = z = ... = x)
+freeCycle :: Ident -> S.Set Ident -> M.Map Ident (S.Set Ident) -> ValueRec
+freeCycle x frees map = if S.member x frees
+  then Direct
+  else let recs = S.map recLookup frees in translateRec recs
+  where
+    recLookup y = case M.lookup y map of
+      Nothing -> FunctionalOrNone
+      Just freeY -> freeCycle x freeY map
+    translateRec [] = FunctionalOrNone
+    translateRec (Direct:_) = Boxed
+    translateRec (Boxed:_) = Boxed
+    translateRec (FunctionalOrNone:rest) = translateRec rest
+-}
 
 -- YES I KNOW THEY'RE ORPHANS
 deriving instance Show (TermX 'Annotated)

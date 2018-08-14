@@ -102,9 +102,9 @@ instance Compile StmtX ([JSExpr], [JSStmt]) where
   compile c (ADeclare _ x (AErased (EKPiType _))) = ((jsVar x):c, [])
   compile c (ADeclare FunctionalOrNone x _) =
     ((jsVar x):c, [JSLet (jsIdent x) Nothing])
-  compile c (ADeclare Direct x _) =
+  compile c (ADeclare DirectRec x _) =
     ((jsVar x):c, [JSLet (jsIdent x) (Just omega)])
-  compile c (ADeclare Boxed x _) =
+  compile c (ADeclare BoxedRec x _) =
     ((jsVar x):c, [JSLet (jsIdent x) (Just $ JSArr [])])
 
   -- and just emit the definition
@@ -123,8 +123,9 @@ instance Compile StmtX ([JSExpr], [JSStmt]) where
       go c args (AS x (EErase _) a) t = go ((jsVar x):c) args a t
   compile c (ADefine FunctionalOrNone x t) =
     (c, [JSExprStmt $ JSAssign (jsVar x) (compile c t)])
-  compile c (ADefine Direct _ _) = (c, [])
-  compile c (ADefine Boxed x t) = (c, [assignBoxedRec (jsVar x) (compile c t)])
+  compile c (ADefine DirectRec _ _) = (c, [])
+  compile c (ADefine BoxedRec x t) =
+    (c, [assignBoxedRec (jsVar x) (compile c t)])
 
   compile c (ADeclareDefine _ _ _ (AErased _)) = (c, [])
   compile c (ADeclareDefine _ x _ (APolyLam a (ALet ctxt t))) =
@@ -141,9 +142,9 @@ instance Compile StmtX ([JSExpr], [JSStmt]) where
       go c args (AS x (EErase _) a) t = go ((jsVar x):c) args a t
   compile c (ADeclareDefine FunctionalOrNone x _ t) =
     ((jsVar x):c, [JSLet (jsIdent x) (Just $ compile ((jsVar x):c) t)])
-  compile c (ADeclareDefine Direct x _ _) =
+  compile c (ADeclareDefine DirectRec x _ _) =
     ((jsVar x):c, [JSLet (jsIdent x) (Just omega)])
-  compile c (ADeclareDefine Boxed x _ t) =
+  compile c (ADeclareDefine BoxedRec x _ t) =
     ((jsVar x):c, [ JSLet (jsIdent x) (Just $ JSArr [])
                   , assignBoxedRec (jsVar x) (compile ((jsVar x):c) t)
                   ])
