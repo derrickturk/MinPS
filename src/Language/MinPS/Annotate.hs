@@ -500,12 +500,14 @@ varsInContext = go M.empty S.empty where
 -- is x free (recursively) in y, and how?
 freeRec :: Ident -> Ident -> M.Map Ident FreeVariableMap -> Maybe FreeKind
 freeRec x y freeByName = go S.empty x y freeByName where
-  go seen x y freeByName = let freeInY = freeByName M.! y in
-    case freeInY M.!? x of
-      Just f -> Just f
-      Nothing -> M.foldlWithKey' promote Nothing (freeInY `M.withoutKeys` seen)
+  go seen x y freeByName = case freeByName M.!? y of
+      Nothing -> Nothing -- hmm
+      Just freeInY -> case freeInY M.!? x of
+        Just f -> Just f
+        Nothing -> M.foldlWithKey' promote Nothing freeInY
     where
       seen' = S.insert y seen
+      freeByName' = freeByName `M.withoutKeys` seen
       -- if we're unboxed anywhere, we're unboxed
       promote (Just FreeUnboxed) _ _ = Just FreeUnboxed
       -- if we're boxed, and we're looking into a boxed definition,
@@ -513,17 +515,17 @@ freeRec x y freeByName = go S.empty x y freeByName where
       promote (Just FreeBoxed) _ FreeBoxed = Just FreeBoxed
       -- if we're boxed, and we're looking into an unboxed definition,
       --   we're whatever we might be inside that definition
-      promote (Just FreeBoxed) v FreeUnboxed = case go seen' x v freeByName of
+      promote (Just FreeBoxed) v FreeUnboxed = case go seen' x v freeByName' of
         Just f -> Just f
         Nothing -> Just FreeBoxed
       -- if we're nothing, and we're looking into a boxed definition,
       --   we're at worst boxed
-      promote Nothing v FreeBoxed = case go seen' x v freeByName of
+      promote Nothing v FreeBoxed = case go seen' x v freeByName' of
         Just _ -> Just FreeBoxed
         Nothing -> Nothing
       -- if we're nothing, and we're looking into an unboxed definition,
       --   we're whatever we might be inside that definition
-      promote Nothing v FreeUnboxed = case go seen' x v freeByName of
+      promote Nothing v FreeUnboxed = case go seen' x v freeByName' of
         Just f -> Just f
         Nothing -> Nothing
 
