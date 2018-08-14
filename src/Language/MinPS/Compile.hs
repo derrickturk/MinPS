@@ -103,7 +103,7 @@ instance Compile StmtX ([JSExpr], [JSStmt]) where
   compile c (ADeclare FunctionalOrNone x _) =
     ((jsVar x):c, [JSLet (jsIdent x) Nothing])
   compile c (ADeclare DirectRec x _) =
-    ((jsVar x):c, [JSLet (jsIdent x) (Just omega)])
+    ((JSCall (jsVar x) []):c, [JSLet (jsIdent x) (Just omega)])
   compile c (ADeclare BoxedRec x _) =
     ((jsVar x):c, [JSLet (jsIdent x) (Just $ JSArr [])])
 
@@ -143,7 +143,7 @@ instance Compile StmtX ([JSExpr], [JSStmt]) where
   compile c (ADeclareDefine FunctionalOrNone x _ t) =
     ((jsVar x):c, [JSLet (jsIdent x) (Just $ compile ((jsVar x):c) t)])
   compile c (ADeclareDefine DirectRec x _ _) =
-    ((jsVar x):c, [JSLet (jsIdent x) (Just omega)])
+    ((JSCall (jsVar x) []):c, [JSLet (jsIdent x) (Just omega)])
   compile c (ADeclareDefine BoxedRec x _ t) =
     ((jsVar x):c, [ JSLet (jsIdent x) (Just $ JSArr [])
                   , assignBoxedRec (jsVar x) (compile ((jsVar x):c) t)
@@ -199,7 +199,7 @@ curriedNames = go S.empty 1 where
   newvar = MkJSIdent . T.cons '$' . T.pack . show
 
 omega :: JSExpr
-omega = JSCall (JSFun [] [JSWhile (JSBool True) [JSEmptyStmt]]) []
+omega = JSFun [] [JSWhile (JSBool True) [JSEmptyStmt]]
 
 assignBoxedRec :: JSExpr -> JSExpr -> JSStmt
 assignBoxedRec dst src = JSExprStmt $
