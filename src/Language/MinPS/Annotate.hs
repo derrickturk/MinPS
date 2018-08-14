@@ -275,22 +275,34 @@ annotateStmt frees s (KDeclare x ty) = do
   -- these get fixed up in a second pass
   -- which is ugly
   pure (frees, x:s, ADeclare FunctionalOrNone x ty')
+
 annotateStmt frees s (KDefine x t) = do
   t' <- annotate' s t
   f <- free t
-  pure ( M.insert x f frees
-       , s
-       , ADefine FunctionalOrNone x t'
-       )
+  ty <- uncurry evalInEnv (typeOfE t)
+  let frees' = M.insert x f frees
+      selfRef = case ty of
+        VPi _ _ -> FunctionalOrNone
+        _ -> case freeRec x x frees' of
+          Nothing -> FunctionalOrNone
+          Just FreeUnboxed -> DirectRec
+          Just FreeBoxed -> BoxedRec
+  pure (frees', s, ADefine selfRef x t')
+
 annotateStmt frees s (KDeclareDefine x ty t) = do
   ty' <- annotate' s ty
   let s' = (x:s)
   t' <- annotate' s' t
   f <- free t
-  pure ( M.insert x f frees
-       , s'
-       , ADeclareDefine FunctionalOrNone x ty' t'
-       )
+  ty <- uncurry evalInEnv (typeOfE t)
+  let frees' = M.insert x f frees
+      selfRef = case ty of
+        VPi _ _ -> FunctionalOrNone
+        _ -> case freeRec x x frees' of
+          Nothing -> FunctionalOrNone
+          Just FreeUnboxed -> DirectRec
+          Just FreeBoxed -> BoxedRec
+  pure (frees', s', ADeclareDefine selfRef x ty' t')
 
 annotateContext :: MonadState Env m
                 => [Ident]
@@ -301,15 +313,16 @@ annotateContext s ctxt = go [] M.empty s ctxt where
   go res frees s (stmt:rest) = do
     (frees', s', stmt') <- annotateStmt frees s stmt
     go (stmt':res) frees' s' rest
-  fixup = id
 
-{-
-annotateContext s [] = pure (s, [])
-annotateContext s (stmt:rest) = do
-  (s', stmt') <- annotateStmt s stmt
-  (s'', rest') <- annotateContext s' rest
-  pure (s'', stmt':rest')
--}
+  fixup ((ADeclare _ x ty):rest) =
+    (ADeclare (defnSelfRef x rest) x ty):(fixup rest)
+  fixup (s:rest) = s:(fixup rest)
+  fixup [] = []
+
+  defnSelfRef x ((ADefine ref y _):_)
+    | x == y = ref
+  defnSelfRef x (_:rest) = defnSelfRef x rest
+  defnSelfRef _ [] = error "internal error: mismatched declare/define"
 
 annotateProgram :: MonadState Env m
                 => Context 'KnownType ->
@@ -430,17 +443,6 @@ freeUnions = M.unionsWith freePromote
 freeBoxAll :: FreeVariableMap -> FreeVariableMap
 freeBoxAll = M.map (const FreeBoxed)
 
--- ah fuck
--- I can't believe I've done this
--- couple problems:
---   (minor): need to update REPL to thread around free maps
---   (major): free needs type info to know whether boxed or unboxed
---     in the App case (e.g. is this [sub]term of sigma type?)
---     this suggests
---     free :: MonadState Env m => KTerm -> m (M.Map Ident FreeKind)
---   (major): we need to re-plumb a bunch of stuff to make that work
---     (or maybe it only changes the shape of annotateStmt/annotateContext)
-
 free :: MonadState Env m => KTerm -> m (M.Map Ident FreeKind)
 free (KLet _ _ ctxt t) = do
   (f, b) <- varsInContext ctxt
@@ -495,27 +497,35 @@ varsInContext = go M.empty S.empty where
        b'
        rest
 
--- this is totally bogus, but we need something like it... ?
-{-
--- this lies a bit; it's correct for Boxed types
---   for unboxed types, it'll return Boxed but really means...
---   no, that's not right at all.
---   it can't know.
---   "direct" self reference can only be determined for boxed types
---   by finding a structural chain of Vars (x = y = z = ... = x)
-freeCycle :: Ident -> S.Set Ident -> M.Map Ident (S.Set Ident) -> ValueRec
-freeCycle x frees map = if S.member x frees
-  then Direct
-  else let recs = S.map recLookup frees in translateRec recs
-  where
-    recLookup y = case M.lookup y map of
-      Nothing -> FunctionalOrNone
-      Just freeY -> freeCycle x freeY map
-    translateRec [] = FunctionalOrNone
-    translateRec (Direct:_) = Boxed
-    translateRec (Boxed:_) = Boxed
-    translateRec (FunctionalOrNone:rest) = translateRec rest
--}
+-- is x free (recursively) in y, and how?
+freeRec :: Ident -> Ident -> M.Map Ident FreeVariableMap -> Maybe FreeKind
+freeRec x y freeByName = go S.empty x y freeByName where
+  go seen x y freeByName = let freeInY = freeByName M.! y in
+    case freeInY M.!? x of
+      Just f -> Just f
+      Nothing -> M.foldlWithKey' promote Nothing (freeInY `M.withoutKeys` seen)
+    where
+      seen' = S.insert y seen
+      -- if we're unboxed anywhere, we're unboxed
+      promote (Just FreeUnboxed) _ _ = Just FreeUnboxed
+      -- if we're boxed, and we're looking into a boxed definition,
+      --   we're still boxed
+      promote (Just FreeBoxed) _ FreeBoxed = Just FreeBoxed
+      -- if we're boxed, and we're looking into an unboxed definition,
+      --   we're whatever we might be inside that definition
+      promote (Just FreeBoxed) v FreeUnboxed = case go seen' x v freeByName of
+        Just f -> Just f
+        Nothing -> Just FreeBoxed
+      -- if we're nothing, and we're looking into a boxed definition,
+      --   we're at worst boxed
+      promote Nothing v FreeBoxed = case go seen' x v freeByName of
+        Just _ -> Just FreeBoxed
+        Nothing -> Nothing
+      -- if we're nothing, and we're looking into an unboxed definition,
+      --   we're whatever we might be inside that definition
+      promote Nothing v FreeUnboxed = case go seen' x v freeByName of
+        Just f -> Just f
+        Nothing -> Nothing
 
 -- YES I KNOW THEY'RE ORPHANS
 deriving instance Show (TermX 'Annotated)
