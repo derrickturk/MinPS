@@ -452,8 +452,12 @@ free (KPair _ _ x y) = freeBoxAll <$> (freeUnion <$> free x <*> free y)
 free (KEnumLabel _ _ _) = pure M.empty
 free (KBox _ _ t) = free t
 free (KFold _ _ t) = free t
--- TODO: this is where the fun begins
-free (KApp _ _ f x) = freeUnion <$> free f <*> free x
+free (KApp ty env f x) = do
+  ty' <- evalInEnv ty env
+  frees <- freeUnion <$> free f <*> free x
+  case ty' of
+    VSigma _ _ -> pure $ freeBoxAll frees
+    _ -> pure frees
 free (KSplit _ _ t x y u) = freeUnion
   <$> free t
   <*> (M.withoutKeys <$> free u <*> pure (S.fromList [x, y]))
