@@ -501,7 +501,9 @@ varsInContext = go M.empty S.empty where
 freeRec :: Ident -> Ident -> M.Map Ident FreeVariableMap -> Maybe FreeKind
 freeRec x y freeByName = go S.empty x y freeByName where
   go seen x y freeByName = case freeByName M.!? y of
-      Nothing -> Nothing -- hmm
+      -- if we've followed a cycle (and thus see Nothing the second time around)
+      --   we're unboxed (?)
+      Nothing -> Just FreeUnboxed
       Just freeInY -> case freeInY M.!? x of
         Just f -> Just f
         Nothing -> M.foldlWithKey' promote Nothing freeInY

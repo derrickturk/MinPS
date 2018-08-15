@@ -133,17 +133,16 @@ instance Emit JSStmt where
            <> sepMap "\n" (emit' i (i + 1)) body
            <> "\n" <> indent o <> "}"
          Nothing -> ""
-    <> "\n"
   emit' o i (JSFor init check update body) = indent o <> "for ("
     <> emit' 0 i init <> "; " <> emit' 0 i check <> "; " <> emit' 0 i update
     <> ") {\n" <> sepMap "\n" (emit' i (i + 1)) body
-    <> "\n" <> indent o <> "}\n"
+    <> "\n" <> indent o <> "}"
   emit' o i (JSWhile cond body) = indent o <> "while (" <> emit' 0 i cond
     <> ") {\n" <> sepMap "\n" (emit' i (i + 1)) body
-    <> "\n" <> indent o <> "}\n"
+    <> "\n" <> indent o <> "}"
   emit' o i (JSSwitch e cases) = indent o <> "switch (" <> emit e <> ") {\n"
     <> sepMap "\n" (emitCase i (i + 1)) cases
-    <> "\n" <> indent o <> "}\n"
+    <> "\n" <> indent o <> "}"
   emit' o i s = indent o <> emit' 0 i s
 
 indent :: Int -> T.Text
