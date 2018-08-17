@@ -20,6 +20,7 @@ module Language.MinPS.Annotate (
   , annotate
   , annotate'
   , annotateStmt
+  , annotateStmt'
   , annotateContext
   , annotateProgram
   , nonNullLabel
@@ -270,49 +271,67 @@ annotateStmt :: MonadState Env m
              -> [Ident]
              -> KStmt
              -> m (M.Map Ident FreeVariableMap, [Ident], AStmt)
-annotateStmt frees s (KDeclare x ty) = do
+
+annotateStmt frees s stmt@(KDefine x t) = do
+  f <- free t
+  let frees' = M.insert x f frees
+  (s', stmt') <- annotateStmt' frees' s stmt
+  pure (frees', s', stmt')
+
+annotateStmt frees s stmt@(KDeclareDefine x _ t) = do
+  f <- free t
+  let frees' = M.insert x f frees
+  (s', stmt') <- annotateStmt' frees' s stmt
+  pure (frees', s', stmt')
+
+annotateStmt frees s stmt = do
+  (s', stmt') <- annotateStmt' frees s stmt
+  pure (frees, s', stmt')
+
+annotateStmt' :: MonadState Env m
+              => M.Map Ident FreeVariableMap
+              -> [Ident]
+              -> KStmt
+              -> m ([Ident], AStmt)
+annotateStmt' _ s (KDeclare x ty) = do
   ty' <- annotate' s ty
   -- these get fixed up in a second pass
   -- which is ugly
-  pure (frees, x:s, ADeclare FunctionalOrNone x ty')
+  pure (x:s, ADeclare FunctionalOrNone x ty')
 
-annotateStmt frees s (KDefine x t) = do
+annotateStmt' frees s (KDefine x t) = do
   t' <- annotate' s t
-  f <- free t
   ty <- uncurry evalInEnv (typeOfE t)
-  let frees' = M.insert x f frees
-      selfRef = case ty of
+  let selfRef = case ty of
         VPi _ _ -> FunctionalOrNone
-        _ -> case freeRec x x frees' of
+        _ -> case freeRec x x frees of
           Nothing -> FunctionalOrNone
           Just FreeUnboxed -> DirectRec
           Just FreeBoxed -> BoxedRec
-  pure (frees', s, ADefine selfRef x t')
+  pure (s, ADefine selfRef x t')
 
-annotateStmt frees s (KDeclareDefine x ty t) = do
+annotateStmt' frees s (KDeclareDefine x ty t) = do
   ty' <- annotate' s ty
   let s' = (x:s)
   t' <- annotate' s' t
-  f <- free t
   ty <- uncurry evalInEnv (typeOfE t)
-  let frees' = M.insert x f frees
-      selfRef = case ty of
+  let selfRef = case ty of
         VPi _ _ -> FunctionalOrNone
-        _ -> case freeRec x x frees' of
+        _ -> case freeRec x x frees of
           Nothing -> FunctionalOrNone
           Just FreeUnboxed -> DirectRec
           Just FreeBoxed -> BoxedRec
-  pure (frees', s', ADeclareDefine selfRef x ty' t')
+  pure (s', ADeclareDefine selfRef x ty' t')
 
 annotateContext :: MonadState Env m
                 => [Ident]
                 -> Context 'KnownType
                 -> m ([Ident], Context 'Annotated)
-annotateContext s ctxt = go [] M.empty s ctxt where
+annotateContext s ctxt = freeByNameInDefs ctxt >>= \f -> go [] f s ctxt where
   go res _ s [] = pure (s, fixup $ reverse res)
   go res frees s (stmt:rest) = do
-    (frees', s', stmt') <- annotateStmt frees s stmt
-    go (stmt':res) frees' s' rest
+    (s', stmt') <- annotateStmt' frees s stmt
+    go (stmt':res) frees s' rest
 
   fixup ((ADeclare _ x ty):rest) =
     (ADeclare (defnSelfRef x rest) x ty):(fixup rest)
@@ -477,6 +496,9 @@ free (KEnum _ _ _) = pure M.empty
 free (KLift _ _ t) = free t
 free (KRec _ _ t) = free t
 
+-- TODO: you keep writing monadic folds by hand
+-- there is surely a foldlM or whatever
+
 varsInContext :: MonadState Env m
               => [KStmt]
               -> m (FreeVariableMap, BoundVariableSet)
@@ -497,13 +519,23 @@ varsInContext = go M.empty S.empty where
        b'
        rest
 
+freeByNameInDefs :: MonadState Env m
+                 => [KStmt]
+                 -> m (M.Map Ident FreeVariableMap)
+freeByNameInDefs = go M.empty where
+  go map [] = pure map
+  go map ((KDeclare _ _):rest) = go map rest
+  go map ((KDefine x t):rest) = free t >>= \f -> go (M.insert x f map) rest
+  go map ((KDeclareDefine x _ t):rest) = free t >>=
+    \f -> go (M.insert x f map) rest
+
 -- is x free (recursively) in y, and how?
 freeRec :: Ident -> Ident -> M.Map Ident FreeVariableMap -> Maybe FreeKind
 freeRec x y freeByName = go S.empty x y freeByName where
   go seen x y freeByName = case freeByName M.!? y of
       -- if we've followed a cycle (and thus see Nothing the second time around)
-      --   we're unboxed (?)
-      Nothing -> Just FreeUnboxed
+      --   we're ...?
+      Nothing -> Nothing
       Just freeInY -> case freeInY M.!? x of
         Just f -> Just f
         Nothing -> M.foldlWithKey' promote Nothing freeInY
