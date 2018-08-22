@@ -438,7 +438,7 @@ foldApp s t u = do
       <$> annotate' s f
       <*> traverse (annotE s) (zip (reverse $ e:es) (x:xs))
 
-    go AZ _ _ _ _ = error "internal error: zero-arity function application"
+    go AZ f _ _ _ = ASatApp Saturated <$> annotate' s f <*> pure []
 
     annotE s (e, t) = (,) <$> pure e <*> annotate' s t
 

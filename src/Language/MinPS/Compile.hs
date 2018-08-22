@@ -98,8 +98,8 @@ instance Compile TermX JSExpr where
 instance Compile StmtX ([JSExpr], [JSStmt]) where
   -- named function definitions will get hoisted, so we can skip the
   --   pre-declaration...
-  compile c (ADeclare _ x (AErased EKTypeType)) = ((jsVar x):c, [])
-  compile c (ADeclare _ x (AErased (EKPiType _))) = ((jsVar x):c, [])
+  compile c (ADeclare _ _ (AErased EKTypeType)) = (JSUndefined:c, [])
+  compile c (ADeclare _ _ (AErased (EKPiType _))) = (JSUndefined:c, [])
   compile c (ADeclare FunctionalOrNone x _) =
     ((jsVar x):c, [JSLet (jsIdent x) Nothing])
   compile c (ADeclare DirectRec x _) =
@@ -127,7 +127,7 @@ instance Compile StmtX ([JSExpr], [JSStmt]) where
   compile c (ADefine BoxedRec x t) =
     (c, [assignBoxedRec (jsVar x) (compile c t)])
 
-  compile c (ADeclareDefine _ _ _ (AErased _)) = (c, [])
+  compile c (ADeclareDefine _ _ _ (AErased _)) = (JSUndefined:c, [])
   compile c (ADeclareDefine _ x _ (APolyLam a (ALet ctxt t))) =
     ((jsVar x):c, go ((jsVar x):c) [] a t) where
       go c args AZ t =
