@@ -150,13 +150,14 @@ instance Compile StmtX ([JSExpr], [JSStmt]) where
                   ])
 
 compileProgram :: [AStmt] -> [JSStmt]
-compileProgram = concat . go [] [] where 
+compileProgram = concat . go [] [] where
   go c p (s:rest) = let (c', s') = compile c s in go c' (s':p) rest
   go _ p [] = reverse p
 
 jsVar :: Ident -> JSExpr
 jsVar = JSVar . jsIdent
 
+-- TODO: replace JS keywords
 jsIdent :: Ident -> JSIdent
 jsIdent = MkJSIdent . T.map fixChar . getIdent where
   fixChar '\'' = '$'
