@@ -99,7 +99,7 @@ instance Compile StmtX ([JSExpr], [JSStmt]) where
   -- named function definitions will get hoisted, so we can skip the
   --   pre-declaration...
   compile c (ADeclare _ _ (AErased EKTypeType)) = (JSUndefined:c, [])
-  compile c (ADeclare _ _ (AErased (EKPiType _))) = (JSUndefined:c, [])
+  compile c (ADeclare _ x (AErased (EKPiType _))) = ((jsVar x):c, [])
   compile c (ADeclare FunctionalOrNone x _) =
     ((jsVar x):c, [JSLet (jsIdent x) Nothing])
   compile c (ADeclare DirectRec x _) =
